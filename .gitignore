@@ -1,0 +1,3 @@
+# python bytecode cache, gets created automatically when the script runs
+__pycache__/
+*.pyc
