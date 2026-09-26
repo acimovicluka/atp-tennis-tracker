@@ -7,7 +7,7 @@ import psycopg2
 # TML repo - swapped in after the Sackmann repo went down.
 # keep this in one place so it's easy to change again if needed
 BASE_URL = "https://raw.githubusercontent.com/Tennismylife/TML-Database/master"
-SEASONS = [2026]
+SEASONS = [2022, 2023, 2024, 2025, 2026]
 
 # read from the environment so nothing real ends up in the repo.
 # the defaults are just the local docker container
@@ -26,6 +26,8 @@ def download_season(year):
     print(f"Downloading {url}")
     response = requests.get(url, timeout=60)
     response.raise_for_status()  # fail loudly on 404 instead of loading nothing
+    # StringIO makes the downloaded text look like a file so csv can read it.
+    # DictReader turns each row into a dict keyed on the column names
     return list(csv.DictReader(io.StringIO(response.text)))
 
 
