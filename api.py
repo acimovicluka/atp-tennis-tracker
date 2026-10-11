@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException #HTTPE is for error message 
 import os
 import psycopg2
 
@@ -70,3 +70,30 @@ def get_player(player_id: str):
         "height": row[3],
         "country": row[4],
     }
+
+# wins and losses per surface, this is the first thing the csv doesn't have
+@app.get("/players/{player_id}/surface-stats")
+def surface_stats(player_id: str):
+    conn = psycopg2.connect(**DB)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT m.surface,
+               COUNT(*) FILTER (WHERE m.winner_id = %s) AS wins,
+               COUNT(*) FILTER (WHERE m.loser_id = %s) AS losses
+        FROM matches m
+        WHERE %s IN (m.winner_id, m.loser_id)
+        GROUP BY m.surface
+        ORDER BY m.surface
+        """,
+        (player_id, player_id, player_id),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # one row per surface - surface, wins, losses
+    stats = []
+    for row in rows:
+        stats.append({"surface": row[0], "wins": row[1], "losses": row[2]})
+    return stats
