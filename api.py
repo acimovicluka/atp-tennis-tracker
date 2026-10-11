@@ -71,7 +71,7 @@ def get_player(player_id: str):
         "country": row[4],
     }
 
-# wins and losses per surface, this is the first thing the csv doesn't have
+# wins and losses per surface, first thing that csv doesnt have
 @app.get("/players/{player_id}/surface-stats")
 def surface_stats(player_id: str):
     conn = psycopg2.connect(**DB)
@@ -96,4 +96,45 @@ def surface_stats(player_id: str):
     stats = []
     for row in rows:
         stats.append({"surface": row[0], "wins": row[1], "losses": row[2]})
+    return stats
+
+
+@app.get("/players/{player_id}/form")
+def form(player_id: str):
+    conn = psycopg2.connect(**DB)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT m.tourney_date,
+                m.tourney_name,
+                m.surface,
+                m.round,
+                CASE WHEN m.winner_id = %s THEN 'W' ELSE 'L' END AS result,
+                opp.name AS opponent,
+                m.score
+        FROM matches m
+        JOIN players opp
+         ON opp.player_id = CASE WHEN m.winner_id = %s THEN m.loser_id ELSE m.winner_id END
+        WHERE %s IN (m.winner_id, m.loser_id)
+        ORDER BY m.tourney_date DESC, m.match_num DESC
+        LIMIT 10
+        """,
+        (player_id, player_id, player_id),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # one row for every match playerd (last 10 matches)
+    stats = []
+    for row in rows:
+            stats.append({
+            "date": row[0],
+            "tournament": row[1],
+            "surface": row[2],
+            "round": row[3],
+            "result": row[4],
+            "opponent": row[5],
+            "score": row[6],
+        })
     return stats
