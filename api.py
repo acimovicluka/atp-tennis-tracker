@@ -33,7 +33,7 @@ def hello():
 def list_players():
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
-    # no LIMIT for now, it's only ~750 players
+    # no LIMIT for now, its only 750 players
     cur.execute("SELECT player_id, name, country FROM players ORDER BY name")
     rows = cur.fetchall()
     cur.close()
@@ -47,7 +47,7 @@ def list_players():
 
 
 # one player, the id comes straight from the url
-@app.get("/players/{player_id}") # {players} means that code take player_id as ingeteger bsaed on ID thta i want
+@app.get("/players/{player_id}") # {players} means that code take player_id as ingeteger based on player ATP ID
 def get_player(player_id: str):
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
@@ -138,3 +138,52 @@ def form(player_id: str):
             "score": row[6],
         })
     return stats
+
+
+# head to head between two players - overall score plus every match they played
+@app.get("/h2h/{player1_id}/{player2_id}")
+def h2h(player1_id: str, player2_id: str):
+    conn = psycopg2.connect(**DB)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT m.tourney_date, m.tourney_name, m.surface, m.round, m.winner_id, m.score
+        FROM matches m
+        WHERE (m.winner_id = %s AND m.loser_id = %s)
+           OR (m.winner_id = %s AND m.loser_id = %s)
+        ORDER BY m.tourney_date DESC, m.match_num DESC
+        """,
+        (player1_id, player2_id, player2_id, player1_id),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    player1_wins = 0
+    player2_wins = 0
+    matches = []
+    for row in rows:
+        # row[4] is winner_id, winner get +1 point
+        if row[4] == player1_id:
+            player1_wins += 1
+        else:
+            player2_wins += 1
+
+        matches.append({
+            "date": row[0],
+            "tournament": row[1],
+            "surface": row[2],
+            "round": row[3],
+            "winner_id": row[4],
+            "score": row[5],
+        })
+
+    return {
+        "player1_id": player1_id,
+        "player2_id": player2_id,
+        "player1_wins": player1_wins,
+        "player2_wins": player2_wins,
+        "matches": matches,
+    }
+
+
