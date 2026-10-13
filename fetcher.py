@@ -77,16 +77,25 @@ def extract_players(rows):
 
 def extract_matches(rows):
     matches = []
+    # a few 2025 tournaments (US Open, Cincinnati, Shanghai...) come with an empty
+    # match_num. we number those ourselves, in the order they show up in the csv,
+    # so the same csv always gets the same numbers and re-runs still don't duplicate
+    generated_num = {}
+
     for row in rows:
         tourney_id = (row.get("tourney_id") or "").strip()
         match_num = to_int(row.get("match_num"))
         winner_id = (row.get("winner_id") or "").strip()
         loser_id = (row.get("loser_id") or "").strip()
 
-        # can't store a match without its key or without both players
+        # can't store a match without a tournament or without both players
         # (the foreign key would reject it anyway)
-        if not tourney_id or match_num is None or not winner_id or not loser_id:
+        if not tourney_id or not winner_id or not loser_id:
             continue
+
+        if match_num is None:
+            generated_num[tourney_id] = generated_num.get(tourney_id, 0) + 1
+            match_num = generated_num[tourney_id]
 
         # order has to match the INSERT into matches in main()
         matches.append((
