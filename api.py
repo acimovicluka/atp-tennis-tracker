@@ -46,6 +46,28 @@ def list_players():
     return players
 
 
+# find players by name, so nobody has to know every atp ID
+# has to stay ABOVE /players/{player_id}, otherwise "search" gets treated as an id
+@app.get("/players/search")
+def search_players(name: str):
+    conn = psycopg2.connect(**DB)
+    cur = conn.cursor()
+    # ILIKE ignores upper/lower case, the % on both sides means "anywhere in the name"
+    cur.execute(
+        "SELECT player_id, name, country FROM players WHERE name ILIKE %s ORDER BY name LIMIT 20",
+        (f"%{name}%",),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    players = []
+    for row in rows:
+        players.append({"player_id": row[0], "name": row[1], "country": row[2]})
+    return players
+
+
+
 # one player, the id comes straight from the url
 @app.get("/players/{player_id}") # {players} means that code take player_id as ingeteger based on player ATP ID
 def get_player(player_id: str):
