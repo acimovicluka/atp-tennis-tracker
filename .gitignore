@@ -1,3 +1,13 @@
 # python bytecode cache, gets created automatically when the script runs
 __pycache__/
 *.pyc
+
+# passwords and local settings - this one must never end up on github
+.env
+
+# virtual environments, in case I make one
+venv/
+.venv/
+
+# vs code settings, nobody else needs them
+.vscode/

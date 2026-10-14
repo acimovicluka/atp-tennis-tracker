@@ -1,61 +1,72 @@
-from fastapi import FastAPI, HTTPException #HTTPE is for error message 
-import os
-import psycopg2
+from fastapi import FastAPI, HTTPException   # FastAPI builds the app, HTTPException lets us return errors like 404 ourselves
+import os         # only used for os.getenv
+import psycopg2   # lets python talk to postgres
 
 
-# same settings as in fetcher.py
+# same database details as in fetcher.py, both of them talk to the same database
+# os.getenv takes the value from the environment if it's set, otherwise the local default on the right
+# nothing connects here yet, that happens in psycopg2.connect(**DB) inside each endpoint
 DB = {
     "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", 5432)),
+    "port": int(os.getenv("DB_PORT", 5432)),   # int because environment values always come in as text
     "dbname": os.getenv("DB_NAME", "tennis"),
     "user": os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", "tennis123"),
 }
 
-# the whole api hangs off this one object
-app = FastAPI(title="ATP tennis tracker")
+# the whole api is this one object, every endpoint below gets attached to it
+# uvicorn finds it through "api:app", meaning file api.py and variable app
+app = FastAPI(title="ATP tennis tracker")   # the title shows up on the /docs page
 
 
-# used by the endpoints below so a wrong id gives 404 instead of an empty list
+# checks if a player id exists in the players table and gives back True or False
+# this is not an endpoint (no @app.get above it), the endpoints below call it themselves
+# it borrows the cursor from the endpoint so it doesn't open a second connection
 def player_exists(cur, player_id):
-    cur.execute("SELECT 1 FROM players WHERE player_id = %s", (player_id,))
-    return cur.fetchone() is not None
+    cur.execute("SELECT 1 FROM players WHERE player_id = %s", (player_id,))   # SELECT 1 because we only care if the row is there, not what's in it
+    return cur.fetchone() is not None   # fetchone gives None when nothing was found
 
 
-# first endpoint, just to see the server is up. no db yet
+# health check, tells you the api is up and running
+# docker and kubernetes will call this later to see if the api is still alive
+# it doesn't touch the database, so it says ok even when the database is down
 @app.get("/ping")
 def ping():
-    return {"status": "ok"}
+    return {"status": "ok"}   # fastapi turns the dict into json by itself
 
 
-# first endpoint that actually reads from the db, all above are just for the sake of test
+# every player in the database, sorted by name
 @app.get("/players")
 def list_players():
-    conn = psycopg2.connect(**DB)
-    cur = conn.cursor()
-    # no LIMIT for now, its only 750 players
+    conn = psycopg2.connect(**DB)   # open a connection to the database
+    cur = conn.cursor()   # the cursor is what sends sql through that connection
+    # no LIMIT for now, it's only around 750 players
     cur.execute("SELECT player_id, name, country FROM players ORDER BY name")
-    rows = cur.fetchall()
+    rows = cur.fetchall()   # picks up the result, a list of tuples like ("D643", "Novak Djokovic", "SRB")
     cur.close()
-    conn.close()
+    conn.close()   # always close it, this function runs on every single request
 
-    # rows come back as tuples, turn each one into a dict so the json has field names
+    # tuples only have positions, not names
+    # turning each one into a dict gives the json proper field names
     players = []
     for row in rows:
         players.append({"player_id": row[0], "name": row[1], "country": row[2]})
     return players
 
 
-# find players by name, so nobody has to know every atp ID
-# has to stay ABOVE /players/{player_id}, otherwise "search" gets treated as an id
+# search players by part of their name, like /players/search?name=djok
+# so nobody has to know ATP ids by heart
+# this has to stay ABOVE /players/{player_id}, because fastapi checks the routes from top to bottom
+# and would otherwise treat the word "search" as a player id
 @app.get("/players/search")
-def search_players(name: str):
+def search_players(name: str):   # name isn't part of the url path, so fastapi takes it from ?name= at the end
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
-    # ILIKE ignores upper/lower case, the % on both sides means "anywhere in the name"
+    # ILIKE is the same as LIKE but ignores upper and lower case
+    # the % on both sides means the text can be anywhere in the name
     cur.execute(
         "SELECT player_id, name, country FROM players WHERE name ILIKE %s ORDER BY name LIMIT 20",
-        (f"%{name}%",),
+        (f"%{name}%",),   # djok becomes %djok%, it still goes through %s so it's safe
     )
     rows = cur.fetchall()
     cur.close()
@@ -67,23 +78,22 @@ def search_players(name: str):
     return players
 
 
-
-# one player, the id comes straight from the url
-@app.get("/players/{player_id}") # {players} means that code take player_id as ingeteger based on player ATP ID
-def get_player(player_id: str):
+# one player by ATP id, like /players/D643
+@app.get("/players/{player_id}")   # {player_id} is the part of the url that changes, fastapi hands it to the function
+def get_player(player_id: str):   # str because ATP ids have letters in them
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
     cur.execute(
         "SELECT player_id, name, hand, height, country FROM players WHERE player_id = %s",
-        (player_id,),
+        (player_id,),   # the comma makes it a tuple with one value, without it this would just be text in brackets
     )
-    row = cur.fetchone()
+    row = cur.fetchone()   # one row, or None if there's no such player
     cur.close()
     conn.close()
 
-    # no such player in the db - say so instead of crashing on row[0]
+    # no such player, so return 404 instead of crashing on row[0]
     if row is None:
-        raise HTTPException(status_code=404, detail="Player not found")
+        raise HTTPException(status_code=404, detail="Player not found")   # raise stops the function right here
 
     return {
         "player_id": row[0],
@@ -93,15 +103,20 @@ def get_player(player_id: str):
         "country": row[4],
     }
 
-# wins and losses per surface, first thing that csv doesnt have
+
+# wins and losses on every surface for one player, like /players/D643/surface-stats
+# the first thing the api actually calculates, it's not written anywhere in the csv
 @app.get("/players/{player_id}/surface-stats")
 def surface_stats(player_id: str):
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
+    # a wrong id gives 404 instead of an empty list
     if not player_exists(cur, player_id):
         cur.close()
-        conn.close()
+        conn.close()   # close before raise, because raise stops the function and the close at the bottom would never run
         raise HTTPException(status_code=404, detail="Player not found")
+    # FILTER counts only the rows that match the condition, so wins and losses come out in one go
+    # GROUP BY makes one row for every surface
     cur.execute(
         """
         SELECT m.surface,
@@ -112,19 +127,20 @@ def surface_stats(player_id: str):
         GROUP BY m.surface
         ORDER BY m.surface
         """,
-        (player_id, player_id, player_id),
+        (player_id, player_id, player_id),   # three %s in the sql, all three are the same player
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
-    # one row per surface - surface, wins, losses
+    # one row per surface: surface, wins, losses
     stats = []
     for row in rows:
         stats.append({"surface": row[0], "wins": row[1], "losses": row[2]})
     return stats
 
 
+# last 10 matches of one player, newest first, like /players/D643/form
 @app.get("/players/{player_id}/form")
 def form(player_id: str):
     conn = psycopg2.connect(**DB)
@@ -133,6 +149,10 @@ def form(player_id: str):
         cur.close()
         conn.close()
         raise HTTPException(status_code=404, detail="Player not found")
+    # CASE WHEN is the sql version of if/else, it gives W if he won and L if he lost
+    # the JOIN brings in the opponent's name from the players table
+    # the opponent is the loser if our player won, and the winner if he lost
+    # DESC sorts newest first and LIMIT 10 keeps only the last 10
     cur.execute(
         """
         SELECT m.tourney_date,
@@ -155,10 +175,10 @@ def form(player_id: str):
     cur.close()
     conn.close()
 
-    # one row for every match playerd (last 10 matches)
+    # one dict per match, row[0] to row[6] follow the order of the columns in the SELECT
     stats = []
     for row in rows:
-            stats.append({
+        stats.append({
             "date": row[0],
             "tournament": row[1],
             "surface": row[2],
@@ -170,17 +190,19 @@ def form(player_id: str):
     return stats
 
 
-# head to head between two players - overall score plus every match they played
+# head to head between two players, like /h2h/D643/S0AG
+# gives the overall score and every match they played against each other
 @app.get("/h2h/{player1_id}/{player2_id}")
 def h2h(player1_id: str, player2_id: str):
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
-    # both have to exist, otherwise we'd return a fake 0:0
+    # both players have to exist, otherwise we'd give back a fake 0:0
     for player_id in (player1_id, player2_id):
         if not player_exists(cur, player_id):
             cur.close()
             conn.close()
             raise HTTPException(status_code=404, detail=f"Player {player_id} not found")
+    # matches where player 1 beat player 2, or player 2 beat player 1
     cur.execute(
         """
         SELECT m.tourney_date, m.tourney_name, m.surface, m.round, m.winner_id, m.score
@@ -189,21 +211,22 @@ def h2h(player1_id: str, player2_id: str):
            OR (m.winner_id = %s AND m.loser_id = %s)
         ORDER BY m.tourney_date DESC, m.match_num DESC
         """,
-        (player1_id, player2_id, player2_id, player1_id),
+        (player1_id, player2_id, player2_id, player1_id),   # order matters here, it follows the four %s in the sql
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
 
+    # count the wins while going through the matches
     player1_wins = 0
     player2_wins = 0
     matches = []
     for row in rows:
-        # row[4] is winner_id, winner get +1 point
+        # row[4] is the winner id, whoever won gets the point
         if row[4] == player1_id:
-            player1_wins += 1
+            player1_wins += 1   # += 1 means add one
         else:
-            player2_wins += 1
+            player2_wins += 1   # only these two can be the winner, so else is always player 2
 
         matches.append({
             "date": row[0],
@@ -214,6 +237,7 @@ def h2h(player1_id: str, player2_id: str):
             "score": row[5],
         })
 
+    # one dict with the score on top and the list of matches under it
     return {
         "player1_id": player1_id,
         "player2_id": player2_id,
@@ -221,5 +245,3 @@ def h2h(player1_id: str, player2_id: str):
         "player2_wins": player2_wins,
         "matches": matches,
     }
-
-
