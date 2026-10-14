@@ -16,16 +16,16 @@ DB = {
 app = FastAPI(title="ATP tennis tracker")
 
 
+# used by the endpoints below so a wrong id gives 404 instead of an empty list
+def player_exists(cur, player_id):
+    cur.execute("SELECT 1 FROM players WHERE player_id = %s", (player_id,))
+    return cur.fetchone() is not None
+
+
 # first endpoint, just to see the server is up. no db yet
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
-
-
-# leftover from testing, can go later
-@app.get("/hello")
-def hello():
-    return {"message": "hello from ATP tracker"}
 
 
 # first endpoint that actually reads from the db, all above are just for the sake of test
@@ -98,6 +98,10 @@ def get_player(player_id: str):
 def surface_stats(player_id: str):
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
+    if not player_exists(cur, player_id):
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Player not found")
     cur.execute(
         """
         SELECT m.surface,
@@ -125,6 +129,10 @@ def surface_stats(player_id: str):
 def form(player_id: str):
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
+    if not player_exists(cur, player_id):
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Player not found")
     cur.execute(
         """
         SELECT m.tourney_date,
@@ -167,6 +175,12 @@ def form(player_id: str):
 def h2h(player1_id: str, player2_id: str):
     conn = psycopg2.connect(**DB)
     cur = conn.cursor()
+    # both have to exist, otherwise we'd return a fake 0:0
+    for player_id in (player1_id, player2_id):
+        if not player_exists(cur, player_id):
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Player {player_id} not found")
     cur.execute(
         """
         SELECT m.tourney_date, m.tourney_name, m.surface, m.round, m.winner_id, m.score
