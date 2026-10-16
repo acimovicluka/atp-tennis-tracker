@@ -1,0 +1,20 @@
+# git history, the container doesnt need it
+.git
+.gitignore
+
+# python cache files, they get made again inside the container anyway
+__pycache__
+*.pyc
+
+# passwords never go inside the image
+.env
+
+# virtual environments and editor settings
+venv
+.venv
+.vscode
+
+# the docker files themselves, the image doesnt need its own recipe
+Dockerfile
+.dockerignore
+docker-compose.yml
