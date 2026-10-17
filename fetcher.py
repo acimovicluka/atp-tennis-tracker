@@ -1,17 +1,21 @@
 import csv        # reads csv files
-import io         # only used for StringIO, see download_season
+import io         # only used for StringIO, see download_csv
 import os         # only used for os.getenv, reading settings from the environment
 import requests   # downloads files from the internet
 import psycopg2   # lets python talk to postgres
 
 
-# where the csv files live on github, one file per season (2025.csv and so on)
-# switched to TML after the Sackmann repo went offline
-# kept in one place so it's easy to swap again if this source dies too
-BASE_URL = "https://raw.githubusercontent.com/Tennismylife/TML-Database/master"
+# where the csv files live, one file per season (2025.csv and so on)
+# TML moved from github to its own site, the github copy stopped in january 2026
+# kept in one place so it's easy to swap again if the source moves one more time
+BASE_URL = "https://stats.tennismylife.org/data"
 
 # which seasons get downloaded
 SEASONS = [2022, 2023, 2024, 2025, 2026]
+
+# every file the fetcher reads: one per season, plus the tournament that is being played right now
+# finished tournaments are in the season file, the one in progress is only in ongoing_tourneys.csv
+FILES = [f"{year}.csv" for year in SEASONS] + ["ongoing_tourneys.csv"]   # makes 2022.csv, 2023.csv... out of SEASONS and adds the ongoing file at the end
 
 # details for connecting to the database, nothing connects here yet
 # the actual connection happens later in psycopg2.connect(**DB)
@@ -27,13 +31,13 @@ DB = {
 }
 
 
-# downloads one season's csv from github and gives back its rows
+# downloads one csv file from TML and gives back its rows
 # every row comes back as a dict, so you can write row["surface"] instead of row[2]
-def download_season(year):
-    url = f"{BASE_URL}/{year}.csv"   # {year} gets replaced, so this ends with /2025.csv
+def download_csv(name):
+    url = f"{BASE_URL}/{name}"   # {name} gets replaced, so this ends with /2025.csv or /ongoing_tourneys.csv
     print(f"Downloading {url}")
     response = requests.get(url, timeout=60)   # gives up after a minute instead of hanging forever
-    response.raise_for_status()   # if github returns an error like 404, stop right here instead of loading nothing
+    response.raise_for_status()   # if the site returns an error like 404, stop right here instead of loading nothing
     # read this line from the inside out:
     # response.text is the whole file as one long piece of text
     # StringIO makes that text act like a file, because the csv reader expects a file
@@ -136,14 +140,14 @@ def extract_matches(rows):
 
 
 # the actual run, step by step:
-# connect to the database, go through every season,
+# connect to the database, go through every file,
 # save players first and matches after, and commit only at the very end
 def main():
     conn = psycopg2.connect(**DB)   # this is where python really connects. **DB unpacks the dict into host=..., port=... and so on
     cur = conn.cursor()   # the cursor is what sends sql through the connection
 
-    for year in SEASONS:
-        rows = download_season(year)
+    for name in FILES:
+        rows = download_csv(name)
         print(f"  {len(rows)} match rows")
 
         # players go in first, because matches point to them (foreign key)
