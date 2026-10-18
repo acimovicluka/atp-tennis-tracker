@@ -1,0 +1,67 @@
+# the whole project in one file: database, fetcher and api
+# start everything with: docker compose up -d
+# settings come from the .env file next to this one
+# if there is no .env, the value after :- is used instead
+
+# name of the project, docker uses it in front of every container, volume and network name
+name: atp-tennis-tracker
+
+services:
+
+  # postgres database, the official image, nothing to build here
+  db:
+    image: postgres:16
+    environment:
+      # postgres makes the database and the user from these the very first time it starts
+      POSTGRES_DB: ${DB_NAME:-tennis}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tennis}
+    volumes:
+      # the data lives in a volume, so it's still there after the container is removed
+      - db-data:/var/lib/postgresql/data
+      # postgres runs every sql file from this folder on the very first start, so the tables make themselves
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      # every 5 seconds docker asks the database if it's ready to take connections
+      # the fetcher and the api wait for a yes before they start
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${DB_USER:-postgres} -d ${DB_NAME:-tennis}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped   # if it crashes, or docker restarts, it comes back up by itself
+    # no ports here on purpose, only the fetcher and the api talk to the database
+    # and they reach it inside docker's own network by the name "db"
+
+  # downloads all the csv files from TML and fills the database, then stops
+  fetcher:
+    build: .   # makes the image from the Dockerfile in this folder
+    command: ["python", "fetcher.py"]   # same image as the api, only the command is different
+    environment:
+      DB_HOST: db   # the database is the "db" service above, not localhost
+      DB_NAME: ${DB_NAME:-tennis}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-tennis}
+    depends_on:
+      db:
+        condition: service_healthy   # don't start until the database says it's ready
+
+  # the api, stays up the whole time
+  api:
+    build: .
+    # no command here, so it runs the CMD from the Dockerfile, which is uvicorn
+    environment:
+      DB_HOST: db
+      DB_NAME: ${DB_NAME:-tennis}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-tennis}
+    ports:
+      # left side is your computer, right side is the container
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+# the volume for the database data, docker keeps it until you delete it yourself
+volumes:
+  db-data:
