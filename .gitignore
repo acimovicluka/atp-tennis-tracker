@@ -11,3 +11,14 @@ venv/
 
 # vs code settings, nobody else needs them
 .vscode/
+
+# terraform downloads its plugins here, it's huge and gets downloaded again with terraform init
+.terraform/
+
+# terraform state, the list of everything terraform created on aws
+# it can hold secrets and ip addresses, so it stays on my computer only
+*.tfstate
+*.tfstate.*
+
+# files with my own values for the variables
+*.tfvars
