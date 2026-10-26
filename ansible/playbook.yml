@@ -1,0 +1,114 @@
+# everything ansible does on the aws server, step by step from top to bottom
+# run it from wsl with: ansible-playbook -i inventory.ini playbook.yml
+# it's safe to run again, steps that are already done just get skipped
+
+- name: Set up the ATP tennis tracker server
+  hosts: atp       # the group from inventory.ini
+  become: true     # run everything with sudo, installing things needs root
+
+  # values used further down, kept up here so they're easy to change
+  vars:
+    repo_url: https://github.com/acimovicluka/atp-tennis-tracker.git
+    project_dir: /home/ubuntu/atp-tennis-tracker
+    # the database password is read from my own .env, the one next to docker-compose.yml on my computer
+    # that file never goes to github, so the password never ends up in this playbook either
+    db_password: "{{ lookup('ansible.builtin.ini', 'DB_PASSWORD', type='properties', file=playbook_dir + '/../.env') | trim }}"
+
+  tasks:
+
+    # the server only has 1 GB of ram and no swap at all
+    # swap is a piece of the disk used as extra ram when the real one runs out
+    # without it postgres and building the docker image can run out of memory
+
+    # makes an empty 2 GB file that will become the swap
+    # "creates" means skip this if /swapfile is already there
+    - name: Make a 2 GB swap file
+      ansible.builtin.command: fallocate -l 2G /swapfile
+      args:
+        creates: /swapfile
+
+    # only root should be able to read it, swap can hold bits of anything that was in memory
+    - name: Only root can read the swap file
+      ansible.builtin.file:
+        path: /swapfile
+        mode: "0600"
+
+    # turns the file into swap and switches it on
+    # only runs when the server has no swap yet, so a second run doesn't break anything
+    - name: Turn on the swap
+      ansible.builtin.shell: mkswap /swapfile && swapon /swapfile
+      when: ansible_facts['swaptotal_mb'] == 0
+
+    # /etc/fstab is the list of things linux switches on at boot
+    # without this line the swap would be gone after a restart
+    - name: Keep the swap on after a restart
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "/swapfile none swap sw 0 0"
+
+    # docker
+    # ubuntu has its own docker packages, the same thing the server suggested when docker --version failed
+    # docker.io is docker itself, docker-compose-v2 gives the "docker compose" command,
+    # docker-buildx is what compose uses to build images from the Dockerfile, and git is for cloning the project
+    # update_cache is the same as running apt update first
+    - name: Install docker and docker compose
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+          - docker-buildx
+          - git
+        state: present
+        update_cache: true
+
+    # makes sure docker is running now and starts by itself after a restart
+    - name: Start docker and keep it on after a restart
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    # adds the ubuntu user to the docker group
+    # this way I can run docker commands over ssh without typing sudo every time
+    # append keeps the groups ubuntu is already in, otherwise it would lose them
+    - name: Let the ubuntu user run docker without sudo
+      ansible.builtin.user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    # the project
+    # downloads the repo from github into /home/ubuntu/atp-tennis-tracker
+    # the first run clones it, every run after that pulls whatever is new on github
+    # become: false runs this one as ubuntu instead of root, so the files belong to ubuntu
+    - name: Download the project from github
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ project_dir }}"
+        version: main
+      become: false
+
+    # .env isn't on github, so it has to be made on the server
+    # same four settings as my local .env, with the password from my computer
+    # mode 0600 means only ubuntu can read it, nobody else on the server
+    # no_log stops ansible from printing the password in the output
+    - name: Write the .env file
+      ansible.builtin.copy:
+        dest: "{{ project_dir }}/.env"
+        content: |
+          DB_NAME=tennis
+          DB_USER=postgres
+          DB_PASSWORD={{ db_password }}
+          API_PORT=8000
+        mode: "0600"
+      become: false
+      no_log: true
+
+    # the same command I use on my own computer, run inside the project folder on the server
+    # --build makes the image again, so new code from github gets used
+    # this runs as root because the docker group for ubuntu only kicks in on a new login
+    # ansible can't tell if compose actually changed something, so this always shows as changed
+    - name: Build and start the project
+      ansible.builtin.command: docker compose up -d --build
+      args:
+        chdir: "{{ project_dir }}"
