@@ -1,0 +1,18 @@
+# this file is made by terraform from terraform/inventory.tftpl
+# don't change it by hand, terraform writes it again on every apply
+
+# [atp] is the name of the group, the playbook uses it to know where to run
+[atp]
+${ip}
+
+# settings for every server in the atp group
+# comments go on their own line here, ansible would read them as part of the value otherwise
+[atp:vars]
+# the default user on aws ubuntu servers
+ansible_user=ubuntu
+# the key I copied into wsl
+ansible_ssh_private_key_file=~/.ssh/atp-tracker
+# trusts a new server automatically the first time instead of asking yes or no
+ansible_ssh_common_args=-o StrictHostKeyChecking=accept-new
+# python on the server, set here so ansible doesn't have to guess and warn about it
+ansible_python_interpreter=/usr/bin/python3

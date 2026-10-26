@@ -8,6 +8,12 @@ terraform {
       source  = "hashicorp/aws"   # the official aws provider from the terraform registry
       version = "~> 6.0"          # any 6.x version is fine, but it never jumps to 7 on its own
     }
+
+    # writes files on my own computer, used for the ansible inventory
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
+    }
   }
 }
 

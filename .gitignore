@@ -22,3 +22,6 @@ venv/
 
 # files with my own values for the variables
 *.tfvars
+
+# made by terraform with the ip of the current server, it changes every time
+ansible/inventory.ini

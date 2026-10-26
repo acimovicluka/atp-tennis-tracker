@@ -75,3 +75,14 @@ resource "aws_instance" "atp" {
     Name = "atp-tracker"
   }
 }
+
+
+# writes the ansible inventory with the ip of the new server
+# this way I never have to copy the ip by hand after terraform apply
+# the file is made from inventory.tftpl, terraform only fills in the ip
+resource "local_file" "inventory" {
+  filename = "${path.module}/../ansible/inventory.ini"   # path.module is this terraform folder
+  content = templatefile("${path.module}/inventory.tftpl", {
+    ip = aws_instance.atp.public_ip
+  })
+}
