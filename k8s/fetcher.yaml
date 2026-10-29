@@ -1,0 +1,45 @@
+# the fetcher, the kubernetes version of the fetcher service in docker-compose.yml
+# in compose it runs once when I type docker compose up
+# here a CronJob starts it by itself every morning, so the database is never out of date
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fetcher
+spec:
+  schedule: "0 6 * * *"          # minute hour day month weekday, so every day at 6:00
+  timeZone: "Europe/Belgrade"    # 6:00 my time, not 6:00 utc
+  concurrencyPolicy: Forbid      # if yesterday's run is somehow still going, don't start a second one
+  successfulJobsHistoryLimit: 3  # keep the last 3 runs so I can read their logs
+  failedJobsHistoryLimit: 3
+  jobTemplate:                   # every day this makes a Job, and the Job makes a pod
+    spec:
+      backoffLimit: 4            # if it fails, try again up to 4 times, for example when the database isn't up yet
+      template:
+        spec:
+          restartPolicy: OnFailure   # restart only when it fails, a finished fetcher should stay finished
+          # same as in api.yaml, stops kubernetes from setting DB_PORT=tcp://... in the pod
+          enableServiceLinks: false
+          containers:
+            - name: fetcher
+              image: atp-tracker:1
+              imagePullPolicy: IfNotPresent
+              command: ["python", "fetcher.py"]   # same image as the api, only the command is different
+              env:
+                - name: DB_HOST
+                  value: db
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: atp-db
+                      key: DB_NAME
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: atp-db
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: atp-db
+                      key: DB_PASSWORD

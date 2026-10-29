@@ -1,0 +1,87 @@
+# the postgres database, the kubernetes version of the db service in docker-compose.yml
+# two things in one file, split by ---
+# a Service that gives the database a fixed name, and a StatefulSet that runs postgres itself
+
+# the Service is the address of the database inside the cluster
+# it's called "db", so DB_HOST: db works exactly like it does in compose
+# there's no way to reach it from outside the cluster, same as compose where the db has no ports
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  selector:
+    app: db               # sends traffic to every pod with the label app: db, the StatefulSet below
+  ports:
+    - port: 5432          # postgres port
+---
+# a StatefulSet is a Deployment for things that keep data
+# the pod always gets the same name (db-0) and always gets its own disk back after a restart
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db
+  replicas: 1             # one database, two copies of postgres would fight over the same data
+  selector:
+    matchLabels:
+      app: db
+  template:               # everything under here describes the pod that gets made
+    metadata:
+      labels:
+        app: db           # the label the Service above looks for
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          # same three settings as in compose, but taken from the atp-db secret instead of .env
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_PASSWORD
+            # keeps the data one folder deeper inside the disk, postgres wants an empty folder on the first start
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          # the same check as the compose healthcheck
+          # until pg_isready says yes, kubernetes doesn't send anything to this pod
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            # the database files live on the disk from volumeClaimTemplates below
+            - name: db-data
+              mountPath: /var/lib/postgresql/data
+            # schema.sql from the atp-schema configmap, postgres runs it when the database is empty
+            - name: schema
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: schema
+          configMap:
+            name: atp-schema
+  # asks kubernetes for a 1 GB disk that stays even when the pod is deleted
+  # this is what the db-data volume is in compose
+  volumeClaimTemplates:
+    - metadata:
+        name: db-data
+      spec:
+        accessModes: ["ReadWriteOnce"]   # only one pod at a time can write to it
+        resources:
+          requests:
+            storage: 1Gi

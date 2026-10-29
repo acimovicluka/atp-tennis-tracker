@@ -25,3 +25,6 @@ venv/
 
 # made by terraform with the ip of the current server, it changes every time
 ansible/inventory.ini
+
+# kubernetes secret with the real password, same idea as .env
+k8s/secret.yaml

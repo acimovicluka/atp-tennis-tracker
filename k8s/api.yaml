@@ -1,0 +1,78 @@
+# the api, the kubernetes version of the api service in docker-compose.yml
+# a Deployment keeps the api running, and a Service lets the browser reach it
+
+# a Deployment says "there should always be this many api pods running"
+# if the pod crashes or stops answering, kubernetes makes a new one by itself
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 1                  # how many copies of the api run at the same time
+  selector:
+    matchLabels:
+      app: api
+  template:                    # the pod this Deployment makes
+    metadata:
+      labels:
+        app: api               # the label the Service below looks for
+    spec:
+      # kubernetes normally puts an env variable for every Service into every pod
+      # for the db Service one of them is DB_PORT=tcp://10.x.x.x:5432, which breaks int(os.getenv("DB_PORT")) in api.py
+      # this turns that off, so DB_PORT stays unset and the code uses its default 5432
+      enableServiceLinks: false
+      containers:
+        - name: api
+          image: atp-tracker:1           # the image I built with docker build, the same one the fetcher uses
+          imagePullPolicy: IfNotPresent  # use the image on my computer, only download it if it isn't there
+          ports:
+            - containerPort: 8000
+          # same settings as in compose, the database is the "db" Service
+          env:
+            - name: DB_HOST
+              value: db
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_PASSWORD
+          # kubernetes calls /ping to check the api
+          # readiness: until /ping answers, no traffic is sent to this pod
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8000
+            periodSeconds: 5
+          # liveness: if /ping stops answering three times in a row, kubernetes restarts the pod
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+---
+# the address of the api
+# LoadBalancer makes it reachable from outside the cluster
+# on docker desktop that means http://localhost:8000, the same address as with compose
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  type: LoadBalancer
+  selector:
+    app: api
+  ports:
+    - port: 8000          # the port on my computer
+      targetPort: 8000    # the port inside the pod, where uvicorn listens
