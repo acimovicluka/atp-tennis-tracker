@@ -9,10 +9,11 @@ variable "region" {
 }
 
 # how big the server is
-# t3.micro is 2 cpus and 1 GB of ram, enough for postgres, the fetcher and the api
+# t3.small is 2 cpus and 2 GB of ram
+# kubernetes (k3s) takes about half a gig by itself, so the 1 GB t3.micro is too small now
 variable "instance_type" {
   type    = string
-  default = "t3.micro"
+  default = "t3.small"
 }
 
 # the public half of the ssh key that lets me log into the server

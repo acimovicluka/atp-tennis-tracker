@@ -1,6 +1,7 @@
 # everything ansible does on the aws server, step by step from top to bottom
 # run it from wsl with: ansible-playbook -i inventory.ini playbook.yml
 # it's safe to run again, steps that are already done just get skipped
+# the project runs on kubernetes (k3s) here, with the same manifests from k8s/ that I use on docker desktop
 
 - name: Set up the ATP tennis tracker server
   hosts: atp       # the group from inventory.ini
@@ -16,9 +17,9 @@
 
   tasks:
 
-    # the server only has 1 GB of ram and no swap at all
+    # the server has 2 GB of ram and no swap at all
     # swap is a piece of the disk used as extra ram when the real one runs out
-    # without it postgres and building the docker image can run out of memory
+    # without it kubernetes, postgres and building the docker image can run out of memory
 
     # makes an empty 2 GB file that will become the swap
     # "creates" means skip this if /swapfile is already there
@@ -47,15 +48,13 @@
         line: "/swapfile none swap sw 0 0"
 
     # docker
-    # ubuntu has its own docker packages, the same thing the server suggested when docker --version failed
-    # docker.io is docker itself, docker-compose-v2 gives the "docker compose" command,
-    # docker-buildx is what compose uses to build images from the Dockerfile, and git is for cloning the project
+    # kubernetes doesn't build images, so docker is still needed to build atp-tracker:1 from the Dockerfile
+    # docker.io is docker itself, docker-buildx is what builds images, and git is for cloning the project
     # update_cache is the same as running apt update first
-    - name: Install docker and docker compose
+    - name: Install docker and git
       ansible.builtin.apt:
         name:
           - docker.io
-          - docker-compose-v2
           - docker-buildx
           - git
         state: present
@@ -88,27 +87,74 @@
         version: main
       become: false
 
-    # .env isn't on github, so it has to be made on the server
-    # same four settings as my local .env, with the password from my computer
-    # mode 0600 means only ubuntu can read it, nobody else on the server
-    # no_log stops ansible from printing the password in the output
-    - name: Write the .env file
-      ansible.builtin.copy:
-        dest: "{{ project_dir }}/.env"
-        content: |
-          DB_NAME=tennis
-          DB_USER=postgres
-          DB_PASSWORD={{ db_password }}
-          API_PORT=8000
-        mode: "0600"
-      become: false
-      no_log: true
+    # kubernetes
+    # k3s is a small kubernetes made for a single server, it installs with one script
+    # traefik is a web router k3s ships with, we don't need it and it would only eat ram
+    # "creates" skips this when k3s is already installed
+    - name: Install k3s
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
+      args:
+        creates: /usr/local/bin/k3s
 
-    # the same command I use on my own computer, run inside the project folder on the server
-    # --build makes the image again, so new code from github gets used
-    # this runs as root because the docker group for ubuntu only kicks in on a new login
-    # ansible can't tell if compose actually changed something, so this always shows as changed
-    - name: Build and start the project
-      ansible.builtin.command: docker compose up -d --build
+    # waits until kubernetes says the server is ready to run pods, at most 2 minutes
+    # k3s kubectl is the same kubectl I use on my computer, it just comes built into k3s
+    - name: Wait for kubernetes to be ready
+      ansible.builtin.command: k3s kubectl wait --for=condition=Ready node --all --timeout=120s
+      changed_when: false
+
+    # the image
+    # same command as on my computer, the newest code from github goes into atp-tracker:1
+    - name: Build the image
+      ansible.builtin.command: docker build -t atp-tracker:1 .
       args:
         chdir: "{{ project_dir }}"
+
+    # k3s has its own image storage and can't see the images docker made
+    # docker save packs the image into one file and k3s ctr images import unpacks it into k3s
+    - name: Hand the image over to k3s
+      ansible.builtin.shell: docker save atp-tracker:1 | k3s ctr images import -
+
+    # the secret
+    # same as k8s/secret.yaml on my computer, with the password read from my .env
+    # it's written into the project folder on the server, where git never sees it
+    # no_log stops ansible from printing the password in the output
+    - name: Write the kubernetes secret
+      ansible.builtin.copy:
+        dest: "{{ project_dir }}/k8s/secret.yaml"
+        content: |
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: atp-db
+          type: Opaque
+          stringData:
+            DB_NAME: tennis
+            DB_USER: postgres
+            DB_PASSWORD: "{{ db_password }}"
+        mode: "0600"
+      no_log: true
+
+    # schema.sql as a configmap, so postgres can make the tables
+    # on my computer I ran kubectl create configmap once by hand
+    # here --dry-run only writes the configmap out and apply sends it, so running it again doesn't fail
+    - name: Put schema.sql into kubernetes
+      ansible.builtin.shell: k3s kubectl create configmap atp-schema --from-file=schema.sql --dry-run=client -o yaml | k3s kubectl apply -f -
+      args:
+        chdir: "{{ project_dir }}"
+
+    # the same command as on my computer, everything from the k8s folder
+    - name: Start the project on kubernetes
+      ansible.builtin.command: k3s kubectl apply -f k8s/
+      args:
+        chdir: "{{ project_dir }}"
+
+    # the image name stays atp-tracker:1 even when the code inside changes,
+    # so kubernetes wouldn't notice anything new on its own
+    # rollout restart swaps the api pod for a new one with the new image, without the api going down
+    - name: Restart the api so it uses the new image
+      ansible.builtin.command: k3s kubectl rollout restart deployment/api
+
+    # runs the fetcher once right now instead of waiting for 6:00 tomorrow
+    # the epoch at the end makes the name different every time, two jobs can't have the same name
+    - name: Run the fetcher once right now
+      ansible.builtin.command: k3s kubectl create job --from=cronjob/fetcher fetcher-ansible-{{ ansible_facts['date_time']['epoch'] }}
