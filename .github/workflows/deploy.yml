@@ -1,0 +1,47 @@
+# updates the aws server with the newest code, the same thing I do with ansible-playbook from wsl
+# it doesn't run on every push, the server isn't always on
+# it runs when I press "Run workflow" on the Actions tab and type in the server ip
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_ip:
+        description: "Public ip of the server, from terraform output public_ip"
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      # the playbook only uses ansible's built in modules, so ansible-core is enough
+      - name: Install ansible
+        run: pip install ansible-core
+
+      # the private ssh key comes from the repo secrets, it never shows up in the logs
+      # same as on my computer, ssh refuses a key that others can read, so chmod 600
+      - name: Set up the ssh key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ATP_SSH_KEY }}" > ~/.ssh/atp-tracker
+          chmod 600 ~/.ssh/atp-tracker
+
+      # the playbook reads the database password from .env next to docker-compose.yml
+      # .env isn't on github, so it gets made here from the repo secrets, only for this run
+      - name: Write .env
+        run: echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" > .env
+
+      # on my computer terraform writes inventory.ini, here it's made from the same template
+      # sed swaps ${ip} in the template for the ip I typed in when starting the workflow
+      - name: Write the inventory
+        run: sed 's/${ip}/${{ inputs.server_ip }}/' terraform/inventory.tftpl > ansible/inventory.ini
+
+      # the same command I run from wsl
+      - name: Run the playbook
+        working-directory: ansible
+        run: ansible-playbook -i inventory.ini playbook.yml

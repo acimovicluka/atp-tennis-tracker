@@ -29,11 +29,11 @@ jobs:
     steps:
       # downloads my repo onto that machine, without this it would be empty
       - name: Get the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # installs python, the same version as in the Dockerfile
       - name: Set up python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
