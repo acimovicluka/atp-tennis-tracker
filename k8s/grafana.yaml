@@ -113,6 +113,7 @@ data:
           "id": 1,
           "type": "stat",
           "title": "Wins",
+          "description": "Every match the player won since 2022, Davis Cup and qualifying included",
           "gridPos": {
             "h": 4,
             "w": 6,
@@ -161,6 +162,7 @@ data:
           "id": 2,
           "type": "stat",
           "title": "Losses",
+          "description": "Every match the player lost since 2022",
           "gridPos": {
             "h": 4,
             "w": 6,
@@ -209,6 +211,7 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Win rate",
+          "description": "Wins out of all matches played, in percent",
           "gridPos": {
             "h": 4,
             "w": 6,
@@ -258,6 +261,7 @@ data:
           "id": 4,
           "type": "stat",
           "title": "Wins in the last 10 matches",
+          "description": "Current form, the same 10 matches as the table below",
           "gridPos": {
             "h": 4,
             "w": 6,
@@ -306,6 +310,7 @@ data:
           "id": 5,
           "type": "barchart",
           "title": "Wins and losses by surface",
+          "description": "Same numbers as /players/{id}/surface-stats in the api",
           "gridPos": {
             "h": 9,
             "w": 12,
@@ -381,6 +386,7 @@ data:
           "id": 6,
           "type": "barchart",
           "title": "Wins and losses by season",
+          "description": "One pair of bars per year, the current season is still going",
           "gridPos": {
             "h": 9,
             "w": 12,
@@ -456,6 +462,7 @@ data:
           "id": 7,
           "type": "table",
           "title": "Last 10 matches",
+          "description": "Newest first, same as /players/{id}/form in the api",
           "gridPos": {
             "h": 10,
             "w": 24,
@@ -491,6 +498,7 @@ data:
           "id": 8,
           "type": "stat",
           "title": "Head to head: ${player:text} vs ${opponent:text}",
+          "description": "Wins of each player against the other, pick the opponent in the dropdown at the top",
           "gridPos": {
             "h": 4,
             "w": 24,
@@ -535,6 +543,7 @@ data:
           "id": 9,
           "type": "table",
           "title": "Head to head matches",
+          "description": "Every match between the two players, newest first, same as /h2h in the api",
           "gridPos": {
             "h": 9,
             "w": 24,
