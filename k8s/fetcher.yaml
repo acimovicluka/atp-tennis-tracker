@@ -23,8 +23,8 @@ spec:
           enableServiceLinks: false
           containers:
             - name: fetcher
-              image: atp-tracker:1
-              imagePullPolicy: IfNotPresent
+              image: ghcr.io/acimovicluka/atp-tennis-tracker:latest   # same image as the api, from GHCR
+              imagePullPolicy: Always    # every morning's run gets the newest image
               command: ["python", "fetcher.py"]   # same image as the api, only the command is different
               env:
                 - name: DB_HOST

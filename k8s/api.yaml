@@ -23,8 +23,8 @@ spec:
       enableServiceLinks: false
       containers:
         - name: api
-          image: atp-tracker:1           # the image I built with docker build, the same one the fetcher uses
-          imagePullPolicy: IfNotPresent  # use the image on my computer, only download it if it isn't there
+          image: ghcr.io/acimovicluka/atp-tennis-tracker:latest   # the image github actions builds on every push, the fetcher uses the same one
+          imagePullPolicy: Always        # always check GHCR for a newer latest when a pod starts
           ports:
             - containerPort: 8000
           # same settings as in compose, the database is the "db" Service

@@ -19,7 +19,7 @@
 
     # the server has 2 GB of ram and no swap at all
     # swap is a piece of the disk used as extra ram when the real one runs out
-    # without it kubernetes, postgres and building the docker image can run out of memory
+    # without it kubernetes and postgres can run out of memory
 
     # makes an empty 2 GB file that will become the swap
     # "creates" means skip this if /swapfile is already there
@@ -47,34 +47,14 @@
         path: /etc/fstab
         line: "/swapfile none swap sw 0 0"
 
-    # docker
-    # kubernetes doesn't build images, so docker is still needed to build atp-tracker:1 from the Dockerfile
-    # docker.io is docker itself, docker-buildx is what builds images, and git is for cloning the project
+    # git, to clone the project onto the server
+    # docker isn't needed here anymore, github actions builds the image and k3s downloads it from GHCR by itself
     # update_cache is the same as running apt update first
-    - name: Install docker and git
+    - name: Install git
       ansible.builtin.apt:
-        name:
-          - docker.io
-          - docker-buildx
-          - git
+        name: git
         state: present
         update_cache: true
-
-    # makes sure docker is running now and starts by itself after a restart
-    - name: Start docker and keep it on after a restart
-      ansible.builtin.service:
-        name: docker
-        state: started
-        enabled: true
-
-    # adds the ubuntu user to the docker group
-    # this way I can run docker commands over ssh without typing sudo every time
-    # append keeps the groups ubuntu is already in, otherwise it would lose them
-    - name: Let the ubuntu user run docker without sudo
-      ansible.builtin.user:
-        name: ubuntu
-        groups: docker
-        append: true
 
     # the project
     # downloads the repo from github into /home/ubuntu/atp-tennis-tracker
@@ -101,18 +81,6 @@
     - name: Wait for kubernetes to be ready
       ansible.builtin.command: k3s kubectl wait --for=condition=Ready node --all --timeout=120s
       changed_when: false
-
-    # the image
-    # same command as on my computer, the newest code from github goes into atp-tracker:1
-    - name: Build the image
-      ansible.builtin.command: docker build -t atp-tracker:1 .
-      args:
-        chdir: "{{ project_dir }}"
-
-    # k3s has its own image storage and can't see the images docker made
-    # docker save packs the image into one file and k3s ctr images import unpacks it into k3s
-    - name: Hand the image over to k3s
-      ansible.builtin.shell: docker save atp-tracker:1 | k3s ctr images import -
 
     # the secret
     # same as k8s/secret.yaml on my computer, with the password read from my .env
@@ -148,9 +116,9 @@
       args:
         chdir: "{{ project_dir }}"
 
-    # the image name stays atp-tracker:1 even when the code inside changes,
+    # the image is always called latest, even when the code inside changes,
     # so kubernetes wouldn't notice anything new on its own
-    # rollout restart swaps the api pod for a new one with the new image, without the api going down
+    # rollout restart makes a new api pod, which downloads the newest latest from GHCR, without the api going down
     - name: Restart the api so it uses the new image
       ansible.builtin.command: k3s kubectl rollout restart deployment/api
 
