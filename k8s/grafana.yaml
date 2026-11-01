@@ -1,0 +1,663 @@
+# grafana, a web page with charts for every player, read straight from the database
+# pick a player from the dropdown at the top and every chart switches to him
+# four things in this file, split by ---
+
+# tells grafana where the database is and where to find the dashboard
+# grafana reads these files by itself when it starts, this is called provisioning
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-provisioning
+data:
+  # the database connection, same db Service as the api uses
+  # $DB_USER, $DB_NAME and $DB_PASSWORD come from the atp-db secret through the env part of the Deployment
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: ATP database
+        uid: atp-postgres
+        type: grafana-postgresql-datasource
+        url: db:5432
+        user: $DB_USER
+        isDefault: true
+        jsonData:
+          database: $DB_NAME
+          sslmode: disable
+          postgresVersion: 1600
+        secureJsonData:
+          password: $DB_PASSWORD
+  # says "load every dashboard file from /etc/grafana/dashboards"
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: atp
+        type: file
+        options:
+          path: /etc/grafana/dashboards
+---
+# the dashboard itself, written in grafana's own json format
+# every panel is one SQL query, $player and $opponent are the two dropdowns at the top
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard
+data:
+  players.json: |
+    {
+      "uid": "atp-players",
+      "title": "ATP players",
+      "editable": true,
+      "schemaVersion": 39,
+      "version": 1,
+      "time": {
+        "from": "now-5y",
+        "to": "now"
+      },
+      "timepicker": {
+        "hidden": true
+      },
+      "refresh": "",
+      "tags": [
+        "atp"
+      ],
+      "templating": {
+        "list": [
+          {
+            "type": "query",
+            "name": "player",
+            "label": "Player",
+            "datasource": {
+              "type": "grafana-postgresql-datasource",
+              "uid": "atp-postgres"
+            },
+            "query": "SELECT player_id AS __value, name AS __text FROM players ORDER BY name",
+            "definition": "SELECT player_id AS __value, name AS __text FROM players ORDER BY name",
+            "refresh": 1,
+            "current": {
+              "text": "Jannik Sinner",
+              "value": "S0AG",
+              "selected": true
+            },
+            "options": [],
+            "includeAll": false,
+            "multi": false,
+            "sort": 0,
+            "hide": 0
+          },
+          {
+            "type": "query",
+            "name": "opponent",
+            "label": "Opponent",
+            "datasource": {
+              "type": "grafana-postgresql-datasource",
+              "uid": "atp-postgres"
+            },
+            "query": "SELECT player_id AS __value, name AS __text FROM players ORDER BY name",
+            "definition": "SELECT player_id AS __value, name AS __text FROM players ORDER BY name",
+            "refresh": 1,
+            "current": {
+              "text": "Carlos Alcaraz",
+              "value": "A0E2",
+              "selected": true
+            },
+            "options": [],
+            "includeAll": false,
+            "multi": false,
+            "sort": 0,
+            "hide": 0
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Wins",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COUNT(*) AS wins FROM matches WHERE winner_id = '$player'"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "green"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Losses",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COUNT(*) AS losses FROM matches WHERE loser_id = '$player'"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "red"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Win rate",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE winner_id = '$player') / NULLIF(COUNT(*), 0), 1) AS win_rate FROM matches WHERE '$player' IN (winner_id, loser_id)"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Wins in the last 10 matches",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COUNT(*) FILTER (WHERE winner_id = '$player') AS last_10_wins FROM (SELECT winner_id FROM matches WHERE '$player' IN (winner_id, loser_id) ORDER BY tourney_date DESC, match_num DESC LIMIT 10) last_ten"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "barchart",
+          "title": "Wins and losses by surface",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 4
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT surface, COUNT(*) FILTER (WHERE winner_id = '$player') AS wins, COUNT(*) FILTER (WHERE loser_id = '$player') AS losses FROM matches WHERE '$player' IN (winner_id, loser_id) AND surface IS NOT NULL GROUP BY surface ORDER BY surface"
+            }
+          ],
+          "options": {
+            "xField": "surface",
+            "orientation": "auto",
+            "showValue": "always",
+            "groupWidth": 0.7,
+            "barWidth": 0.9,
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "wins"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "losses"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "type": "barchart",
+          "title": "Wins and losses by season",
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 4
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT EXTRACT(YEAR FROM tourney_date)::int::text AS season, COUNT(*) FILTER (WHERE winner_id = '$player') AS wins, COUNT(*) FILTER (WHERE loser_id = '$player') AS losses FROM matches WHERE '$player' IN (winner_id, loser_id) GROUP BY season ORDER BY season"
+            }
+          ],
+          "options": {
+            "xField": "season",
+            "orientation": "auto",
+            "showValue": "always",
+            "groupWidth": 0.7,
+            "barWidth": 0.9,
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            }
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "wins"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "green"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "losses"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "fixed",
+                      "fixedColor": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Last 10 matches",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 13
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT m.tourney_date AS date, m.tourney_name AS tournament, m.surface, m.round, CASE WHEN m.winner_id = '$player' THEN 'W' ELSE 'L' END AS result, opp.name AS opponent, m.score FROM matches m JOIN players opp ON opp.player_id = CASE WHEN m.winner_id = '$player' THEN m.loser_id ELSE m.winner_id END WHERE '$player' IN (m.winner_id, m.loser_id) ORDER BY m.tourney_date DESC, m.match_num DESC LIMIT 10"
+            }
+          ],
+          "options": {
+            "showHeader": true
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "Head to head: ${player:text} vs ${opponent:text}",
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 23
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COUNT(*) FILTER (WHERE winner_id = '$player') AS \"${player:text}\", COUNT(*) FILTER (WHERE winner_id = '$opponent') AS \"${opponent:text}\" FROM matches WHERE (winner_id = '$player' AND loser_id = '$opponent') OR (winner_id = '$opponent' AND loser_id = '$player')"
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "value_and_name"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          }
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Head to head matches",
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 27
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "atp-postgres"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "atp-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT m.tourney_date AS date, m.tourney_name AS tournament, m.surface, m.round, w.name AS winner, m.score FROM matches m JOIN players w ON w.player_id = m.winner_id WHERE (m.winner_id = '$player' AND m.loser_id = '$opponent') OR (m.winner_id = '$opponent' AND m.loser_id = '$player') ORDER BY m.tourney_date DESC, m.match_num DESC"
+            }
+          ],
+          "options": {
+            "showHeader": true
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          }
+        }
+      ],
+      "annotations": {
+        "list": []
+      }
+    }
+---
+# runs grafana and keeps it running, the same way api.yaml runs the api
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      enableServiceLinks: false   # same as in api.yaml, keeps kubernetes from adding DB_PORT=tcp://...
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.6.0
+          ports:
+            - containerPort: 3000
+          env:
+            # anyone who opens the page can look at the charts without logging in, but can't change them
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: Viewer
+            # the players dashboard opens right away instead of grafana's welcome page
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /etc/grafana/dashboards/players.json
+            # the admin login is admin with the database password, only needed to edit the dashboard
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_PASSWORD
+            # used by datasources.yaml above to log into the database
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: atp-db
+                  key: DB_PASSWORD
+          # grafana has its own health address, same idea as /ping on the api
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 5
+          volumeMounts:
+            # the two provisioning files go where grafana looks for them
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/datasources/atp.yaml
+              subPath: datasources.yaml
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/dashboards/atp.yaml
+              subPath: dashboards.yaml
+            # the dashboard json
+            - name: dashboard
+              mountPath: /etc/grafana/dashboards
+      volumes:
+        - name: provisioning
+          configMap:
+            name: grafana-provisioning
+        - name: dashboard
+          configMap:
+            name: grafana-dashboard
+---
+# the address of grafana, port 3000, the same way the api is on 8000
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  type: LoadBalancer
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000

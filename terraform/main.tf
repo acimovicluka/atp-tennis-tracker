@@ -45,6 +45,14 @@ resource "aws_security_group" "atp" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # port 3000 is grafana, the charts page, open to everyone like the api
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   # the server itself can reach anything outside
   # it needs this to install docker and to download the match data
   egress {
