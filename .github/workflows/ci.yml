@@ -10,10 +10,21 @@ on:
   pull_request:
     branches: [main]
 
+# the image lives on GHCR, github's own place for docker images
+# github only allows lowercase names there
+env:
+  IMAGE: ghcr.io/acimovicluka/atp-tennis-tracker
+
 jobs:
   check:
     # github gives a fresh ubuntu machine for every run and throws it away after
     runs-on: ubuntu-latest
+
+    # by default a workflow can only read the repo
+    # packages: write lets it upload the image to GHCR
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       # downloads my repo onto that machine, without this it would be empty
@@ -39,5 +50,23 @@ jobs:
 
       # builds the image the same way I do with docker build on my computer
       # if the Dockerfile is broken, this is where it shows
+      # it gets two names: the commit it was made from, and latest
+      # the label ties the image to this repo, so it shows up on the repo page
       - name: Build the docker image
-        run: docker build -t atp-tracker:ci .
+        run: |
+          docker build \
+            -t $IMAGE:${{ github.sha }} \
+            -t $IMAGE:latest \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            .
+
+      # logs docker into GHCR with a key github makes for this run only, so no password of mine is needed
+      # only on a push to main, a pull request only gets checked and never uploads anything
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # uploads both names of the image to GHCR
+      - name: Push the image to GHCR
+        if: github.event_name == 'push'
+        run: docker push --all-tags $IMAGE
