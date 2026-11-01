@@ -1,0 +1,43 @@
+# checks the project on github every time I push
+# if something is broken, github shows a red x next to the commit instead of a green check
+
+name: CI
+
+# when this runs: on every push to main, and on pull requests into main
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    # github gives a fresh ubuntu machine for every run and throws it away after
+    runs-on: ubuntu-latest
+
+    steps:
+      # downloads my repo onto that machine, without this it would be empty
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      # installs python, the same version as in the Dockerfile
+      - name: Set up python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # the same packages the docker image gets
+      - name: Install packages
+        run: pip install -r requirements.txt
+
+      # imports both files without running them
+      # this catches typos, missing imports and packages that don't install,
+      # the kind of mistakes that would only show up once the container crashes
+      # it doesn't need the database, both files only connect when they're actually used
+      - name: Check that the code loads
+        run: python -c "import api, fetcher"
+
+      # builds the image the same way I do with docker build on my computer
+      # if the Dockerfile is broken, this is where it shows
+      - name: Build the docker image
+        run: docker build -t atp-tracker:ci .
