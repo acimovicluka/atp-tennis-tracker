@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException   # FastAPI builds the app, HTTPException lets us return errors like 404 ourselves
 import os         # only used for os.getenv
 import psycopg2   # lets python talk to postgres
+from prometheus_fastapi_instrumentator import Instrumentator   # counts requests for prometheus
 
 
 # same database details as in fetcher.py, both of them talk to the same database
@@ -17,6 +18,11 @@ DB = {
 # the whole api is this one object, every endpoint below gets attached to it
 # uvicorn finds it through "api:app", meaning file api.py and variable app
 app = FastAPI(title="ATP tennis tracker")   # the title shows up on the /docs page
+
+# adds a /metrics address that prometheus reads every 15 seconds
+# it counts every request: which endpoint, what status code and how long it took
+# /ping and /metrics are left out, kubernetes calls /ping every few seconds and it would drown out the real traffic
+Instrumentator(excluded_handlers=["/ping", "/metrics"]).instrument(app).expose(app)
 
 
 # checks if a player id exists in the players table and gives back True or False

@@ -1,0 +1,74 @@
+# prometheus, it collects numbers about the api over time
+# every 15 seconds it opens http://api:8000/metrics and saves what it finds
+# grafana then draws charts from those numbers
+# three things in this file, split by ---
+
+# the prometheus settings file, what to read and how often
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s          # how often prometheus asks for new numbers
+    scrape_configs:
+      - job_name: api               # the name these numbers get, grafana uses it
+        static_configs:
+          - targets: ["api:8000"]   # the api Service, prometheus reads /metrics there by default
+---
+# runs prometheus and keeps it running
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.4.0
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=7d   # keeps one week of numbers, older ones get deleted
+          ports:
+            - containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            # the numbers are kept in an emptyDir, a folder that lives as long as the pod
+            # if the pod is replaced the history starts over, that's fine for this project
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}
+---
+# the address of prometheus inside the cluster
+# no LoadBalancer here, only grafana needs to reach it, so it stays closed to the outside like the database
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
