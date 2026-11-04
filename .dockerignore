@@ -18,3 +18,8 @@ venv
 Dockerfile
 .dockerignore
 docker-compose.yml
+
+# the tests run in CI before the image is built, the image itself doesn't need them
+tests
+requirements-dev.txt
+.pytest_cache

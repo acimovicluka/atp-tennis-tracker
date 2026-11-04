@@ -1,5 +1,7 @@
 # ATP tennis tracker
 
+[![CI](https://github.com/acimovicluka/atp-tennis-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/acimovicluka/atp-tennis-tracker/actions/workflows/ci.yml)
+
 ATP tennis tracker downloads ATP match results and stores them in a Postgres database. The data covers every season from 2022 onwards, including tournaments that are still in progress.
 
 An API built with FastAPI reads from the database and calculates stats for each player: the last 10 matches, wins and losses by surface, and the head to head record between two players. Players can be searched by name.

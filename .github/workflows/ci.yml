@@ -26,6 +26,24 @@ jobs:
       contents: read
       packages: write
 
+    # an empty postgres just for the tests, github starts it next to the machine and throws it away after
+    # same idea as the db service in docker-compose.yml
+    # the password here is not a secret, this database only lives for a few minutes and holds made up data
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tennis_test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        # wait until postgres is ready before the steps start, like the healthcheck in docker-compose.yml
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       # downloads my repo onto that machine, without this it would be empty
       - name: Get the code
@@ -37,16 +55,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      # the same packages the docker image gets
+      # the same packages the docker image gets, plus pytest for the tests
       - name: Install packages
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
-      # imports both files without running them
-      # this catches typos, missing imports and packages that don't install,
-      # the kind of mistakes that would only show up once the container crashes
-      # it doesn't need the database, both files only connect when they're actually used
-      - name: Check that the code loads
-        run: python -c "import api, fetcher"
+      # runs everything in the tests folder against the test database above
+      # it fills the database with tests/seed.sql and checks that every endpoint gives the right answer
+      # if one test fails, the run stops here and no image gets built or uploaded
+      # python -m pytest instead of just pytest, so python can find api.py and fetcher.py in the main folder
+      - name: Run the tests
+        run: python -m pytest -v
+        env:
+          DB_HOST: localhost
+          DB_NAME: tennis_test
+          DB_USER: postgres
+          DB_PASSWORD: test
 
       # builds the image the same way I do with docker build on my computer
       # if the Dockerfile is broken, this is where it shows

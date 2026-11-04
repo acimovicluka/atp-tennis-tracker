@@ -31,3 +31,6 @@ k8s/secret.yaml
 
 # my notes for claude code, they stay on my computer only
 CLAUDE.md
+
+# made by pytest when the tests run
+.pytest_cache/
