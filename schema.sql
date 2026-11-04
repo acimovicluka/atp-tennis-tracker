@@ -1,6 +1,14 @@
 -- database schema for ATP tennis tracker
--- the data comes from Tennismylife/TML-Database on github, one csv file per season
--- run this once to create the empty tables, the fetcher fills them later
+-- the data comes from TennisMyLife (stats.tennismylife.org), one csv file per season
+-- postgres runs this on the very first start, and the fetcher runs it again every time before it loads data
+-- that way something new added here (a table, a view) also shows up in a database that already exists
+-- so everything in this file has to be safe to run again: IF NOT EXISTS, OR REPLACE
+-- this only works for adding new things, changing an existing column would need an ALTER TABLE by hand
+
+
+-- unaccent removes accents from text, so a search for "đok" can find "Djokovic"
+-- it's an extension that comes with postgres, it only has to be switched on
+CREATE EXTENSION IF NOT EXISTS unaccent;
 
 
 -- players table, one row per player
@@ -47,3 +55,15 @@ CREATE TABLE IF NOT EXISTS matches (
     -- this is what makes it safe to run the fetcher again and again
     PRIMARY KEY (tourney_id, match_num)
 );
+
+
+-- every match that was actually played, so all of them except walkovers
+-- a walkover (score W/O) means one player didn't show up, so no tennis was played
+-- official ATP stats leave walkovers out of win/loss records and head to head, so we do the same
+-- retirements (RET) and defaults (DEF) stay in, ATP counts those as normal wins and losses
+-- a view is a saved SELECT that you can use like a table, it doesn't store any data itself
+-- the api and grafana read from here, the matches table above still keeps everything from the csv
+CREATE OR REPLACE VIEW played_matches AS
+SELECT *
+FROM matches
+WHERE score IS NULL OR score NOT LIKE '%W/O%';

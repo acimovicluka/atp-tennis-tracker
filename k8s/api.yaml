@@ -46,14 +46,15 @@ spec:
                 secretKeyRef:
                   name: atp-db
                   key: DB_PASSWORD
-          # kubernetes calls /ping to check the api
-          # readiness: until /ping answers, no traffic is sent to this pod
+          # kubernetes checks the api in two different ways
+          # readiness: until /ready answers, meaning the api can reach the database, no traffic is sent to this pod
           readinessProbe:
             httpGet:
-              path: /ping
+              path: /ready
               port: 8000
             periodSeconds: 5
           # liveness: if /ping stops answering three times in a row, kubernetes restarts the pod
+          # it uses /ping and not /ready, a database outage shouldn't make kubernetes restart a healthy api over and over
           livenessProbe:
             httpGet:
               path: /ping

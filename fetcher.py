@@ -1,8 +1,9 @@
 import csv        # reads csv files
 import io         # only used for StringIO, see download_csv
-import os         # only used for os.getenv, reading settings from the environment
+import os         # only used to find schema.sql next to this file
 import requests   # downloads files from the internet
-import psycopg2   # lets python talk to postgres
+
+from db import connect   # opens a database connection, the settings live in db.py
 
 
 # where the csv files live, one file per season (2025.csv and so on)
@@ -13,22 +14,14 @@ BASE_URL = "https://stats.tennismylife.org/data"
 # which seasons get downloaded
 SEASONS = [2022, 2023, 2024, 2025, 2026]
 
-# every file the fetcher reads: one per season, plus the tournament that is being played right now
+# every file the fetcher reads: the tournament that is being played right now, plus one file per season
 # finished tournaments are in the season file, the one in progress is only in ongoing_tourneys.csv
-FILES = [f"{year}.csv" for year in SEASONS] + ["ongoing_tourneys.csv"]   # makes 2022.csv, 2023.csv... out of SEASONS and adds the ongoing file at the end
+# the ongoing file goes first: on the day a tournament moves into the season file it can be in both,
+# and the file that comes later wins (see main), so the finished version from the season file is the one that stays
+FILES = ["ongoing_tourneys.csv"] + [f"{year}.csv" for year in SEASONS]   # makes 2022.csv, 2023.csv... out of SEASONS
 
-# details for connecting to the database, nothing connects here yet
-# the actual connection happens later in psycopg2.connect(**DB)
-# os.getenv takes the value from the environment if it's set,
-# otherwise it uses the value on the right, which is my local docker container
-# this way the real password never has to be written in the code
-DB = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", 5432)),   # int because environment values always come in as text
-    "dbname": os.getenv("DB_NAME", "tennis"),
-    "user": os.getenv("DB_USER", "postgres"),
-    "password": os.getenv("DB_PASSWORD", "tennis123"),
-}
+# schema.sql sits next to this file, on my computer and inside the docker image
+SCHEMA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
 
 
 # downloads one csv file from TML and gives back its rows
@@ -102,6 +95,10 @@ def extract_matches(rows):
     # the same csv always gives the same numbers, so running the fetcher again still doesn't create duplicates
     generated_num = {}   # remembers the last number given out for each tournament
 
+    # the source sometimes has the same match twice under two match numbers (Gijon 2022, a Davis Cup tie in 2024)
+    # two players can only meet once in the same round of the same tournament, so the second copy gets skipped
+    seen = set()   # a set is like a list that can't hold the same thing twice, and checking "is it in there" is fast
+
     for row in rows:
         tourney_id = (row.get("tourney_id") or "").strip()
         match_num = to_int(row.get("match_num"))
@@ -112,6 +109,11 @@ def extract_matches(rows):
         # the database would refuse it anyway because of the foreign key
         if not tourney_id or not winner_id or not loser_id:
             continue
+
+        same_match = (tourney_id, row.get("round"), winner_id, loser_id)
+        if same_match in seen:
+            continue
+        seen.add(same_match)
 
         if match_num is None:
             generated_num[tourney_id] = generated_num.get(tourney_id, 0) + 1   # .get(..., 0) gives 0 if this tournament has no number yet
@@ -140,11 +142,16 @@ def extract_matches(rows):
 
 
 # the actual run, step by step:
-# connect to the database, go through every file,
+# connect to the database, make sure the schema is up to date, go through every file,
 # save players first and matches after, and commit only at the very end
 def main():
-    conn = psycopg2.connect(**DB)   # this is where python really connects. **DB unpacks the dict into host=..., port=... and so on
+    conn = connect()   # this is where python really connects
     cur = conn.cursor()   # the cursor is what sends sql through the connection
+
+    # run schema.sql again, so anything new in it (a table, a view) also lands in a database that already exists
+    # postgres only runs it by itself on the very first start, see the top of schema.sql
+    with open(SCHEMA_FILE, encoding="utf-8") as f:   # with closes the file by itself when the block ends
+        cur.execute(f.read())
 
     for name in FILES:
         rows = download_csv(name)
@@ -165,9 +172,17 @@ def main():
         )
         print(f"  {len(players)} unique players processed")
 
-        # same thing for matches
-        # ON CONFLICT is what makes it safe to run the fetcher again without duplicates
+        # the source fixes and renumbers matches after a tournament is over,
+        # and a tournament in progress gets numbered differently once it moves into the season file
+        # if we only added new rows, the old version would stay next to the fixed one and count twice
+        # so every tournament in this file is first removed and then saved again exactly as the csv has it now
+        # this is safe because nothing is saved until the commit at the end, if anything fails the old data stays
         matches = extract_matches(rows)
+        tourney_ids = list({match[0] for match in matches})   # match[0] is the tourney_id, the {} removes repeats
+        cur.execute("DELETE FROM matches WHERE tourney_id = ANY(%s)", (tourney_ids,))   # ANY means "is one of these"
+        print(f"  {cur.rowcount} old matches removed from {len(tourney_ids)} tournaments")
+
+        # ON CONFLICT is still here as a safety net, for the rare csv that has two matches with the same number
         cur.executemany(
             """
             INSERT INTO matches (

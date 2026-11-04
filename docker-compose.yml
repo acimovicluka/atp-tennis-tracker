@@ -2,6 +2,7 @@
 # start everything with: docker compose up -d
 # settings come from the .env file next to this one
 # if there is no .env, the value after :- is used instead
+# the password has no default on purpose: :? stops compose with that message if DB_PASSWORD is missing
 
 # name of the project, docker uses it in front of every container, volume and network name
 name: atp-tennis-tracker
@@ -15,7 +16,7 @@ services:
       # postgres makes the database and the user from these the very first time it starts
       POSTGRES_DB: ${DB_NAME:-tennis}
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-tennis}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in the .env file}
     volumes:
       # the data lives in a volume, so it's still there after the container is removed
       - db-data:/var/lib/postgresql/data
@@ -40,7 +41,7 @@ services:
       DB_HOST: db   # the database is the "db" service above, not localhost
       DB_NAME: ${DB_NAME:-tennis}
       DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-tennis}
+      DB_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in the .env file}
     depends_on:
       db:
         condition: service_healthy   # don't start until the database says it's ready
@@ -53,7 +54,7 @@ services:
       DB_HOST: db
       DB_NAME: ${DB_NAME:-tennis}
       DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-tennis}
+      DB_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in the .env file}
     ports:
       # left side is your computer, right side is the container
       - "${API_PORT:-8000}:8000"

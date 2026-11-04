@@ -118,7 +118,7 @@ data:
           "id": 1,
           "type": "stat",
           "title": "Wins",
-          "description": "Every match the player won since 2022, Davis Cup and qualifying included",
+          "description": "Every match the player won since 2022, Davis Cup and qualifying included, walkovers left out like in official ATP stats",
           "gridPos": {
             "h": 4,
             "w": 6,
@@ -139,7 +139,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT COUNT(*) AS wins FROM matches WHERE winner_id = '$player'"
+              "rawSql": "SELECT COUNT(*) AS wins FROM played_matches WHERE winner_id = '$player'"
             }
           ],
           "options": {
@@ -167,7 +167,7 @@ data:
           "id": 2,
           "type": "stat",
           "title": "Losses",
-          "description": "Every match the player lost since 2022",
+          "description": "Every match the player lost since 2022, walkovers left out",
           "gridPos": {
             "h": 4,
             "w": 6,
@@ -188,7 +188,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT COUNT(*) AS losses FROM matches WHERE loser_id = '$player'"
+              "rawSql": "SELECT COUNT(*) AS losses FROM played_matches WHERE loser_id = '$player'"
             }
           ],
           "options": {
@@ -237,7 +237,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE winner_id = '$player') / NULLIF(COUNT(*), 0), 1) AS win_rate FROM matches WHERE '$player' IN (winner_id, loser_id)"
+              "rawSql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE winner_id = '$player') / NULLIF(COUNT(*), 0), 1) AS win_rate FROM played_matches WHERE '$player' IN (winner_id, loser_id)"
             }
           ],
           "options": {
@@ -287,7 +287,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT COUNT(*) FILTER (WHERE winner_id = '$player') AS last_10_wins FROM (SELECT winner_id FROM matches WHERE '$player' IN (winner_id, loser_id) ORDER BY tourney_date DESC, match_num DESC LIMIT 10) last_ten"
+              "rawSql": "SELECT COUNT(*) FILTER (WHERE winner_id = '$player') AS last_10_wins FROM (SELECT winner_id FROM played_matches WHERE '$player' IN (winner_id, loser_id) ORDER BY tourney_date DESC, match_num DESC LIMIT 10) last_ten"
             }
           ],
           "options": {
@@ -336,7 +336,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT surface, COUNT(*) FILTER (WHERE winner_id = '$player') AS wins, COUNT(*) FILTER (WHERE loser_id = '$player') AS losses FROM matches WHERE '$player' IN (winner_id, loser_id) AND surface IS NOT NULL GROUP BY surface ORDER BY surface"
+              "rawSql": "SELECT surface, COUNT(*) FILTER (WHERE winner_id = '$player') AS wins, COUNT(*) FILTER (WHERE loser_id = '$player') AS losses FROM played_matches WHERE '$player' IN (winner_id, loser_id) AND surface IS NOT NULL GROUP BY surface ORDER BY surface"
             }
           ],
           "options": {
@@ -412,7 +412,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT EXTRACT(YEAR FROM tourney_date)::int::text AS season, COUNT(*) FILTER (WHERE winner_id = '$player') AS wins, COUNT(*) FILTER (WHERE loser_id = '$player') AS losses FROM matches WHERE '$player' IN (winner_id, loser_id) GROUP BY season ORDER BY season"
+              "rawSql": "SELECT EXTRACT(YEAR FROM tourney_date)::int::text AS season, COUNT(*) FILTER (WHERE winner_id = '$player') AS wins, COUNT(*) FILTER (WHERE loser_id = '$player') AS losses FROM played_matches WHERE '$player' IN (winner_id, loser_id) GROUP BY season ORDER BY season"
             }
           ],
           "options": {
@@ -488,7 +488,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT m.tourney_date AS date, m.tourney_name AS tournament, m.surface, m.round, CASE WHEN m.winner_id = '$player' THEN 'W' ELSE 'L' END AS result, opp.name AS opponent, m.score FROM matches m JOIN players opp ON opp.player_id = CASE WHEN m.winner_id = '$player' THEN m.loser_id ELSE m.winner_id END WHERE '$player' IN (m.winner_id, m.loser_id) ORDER BY m.tourney_date DESC, m.match_num DESC LIMIT 10"
+              "rawSql": "SELECT to_char(m.tourney_date, 'YYYY-MM-DD') AS date, m.tourney_name AS tournament, m.surface, m.round, CASE WHEN m.winner_id = '$player' THEN 'W' ELSE 'L' END AS result, opp.name AS opponent, m.score FROM played_matches m JOIN players opp ON opp.player_id = CASE WHEN m.winner_id = '$player' THEN m.loser_id ELSE m.winner_id END WHERE '$player' IN (m.winner_id, m.loser_id) ORDER BY m.tourney_date DESC, m.match_num DESC LIMIT 10"
             }
           ],
           "options": {
@@ -524,7 +524,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT COUNT(*) FILTER (WHERE winner_id = '$player') AS \"${player:text}\", COUNT(*) FILTER (WHERE winner_id = '$opponent') AS \"${opponent:text}\" FROM matches WHERE (winner_id = '$player' AND loser_id = '$opponent') OR (winner_id = '$opponent' AND loser_id = '$player')"
+              "rawSql": "SELECT COUNT(*) FILTER (WHERE winner_id = '$player') AS \"${player:text}\", COUNT(*) FILTER (WHERE winner_id = '$opponent') AS \"${opponent:text}\" FROM played_matches WHERE (winner_id = '$player' AND loser_id = '$opponent') OR (winner_id = '$opponent' AND loser_id = '$player')"
             }
           ],
           "options": {
@@ -569,7 +569,7 @@ data:
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT m.tourney_date AS date, m.tourney_name AS tournament, m.surface, m.round, w.name AS winner, m.score FROM matches m JOIN players w ON w.player_id = m.winner_id WHERE (m.winner_id = '$player' AND m.loser_id = '$opponent') OR (m.winner_id = '$opponent' AND m.loser_id = '$player') ORDER BY m.tourney_date DESC, m.match_num DESC"
+              "rawSql": "SELECT to_char(m.tourney_date, 'YYYY-MM-DD') AS date, m.tourney_name AS tournament, m.surface, m.round, w.name AS winner, m.score FROM played_matches m JOIN players w ON w.player_id = m.winner_id WHERE (m.winner_id = '$player' AND m.loser_id = '$opponent') OR (m.winner_id = '$opponent' AND m.loser_id = '$player') ORDER BY m.tourney_date DESC, m.match_num DESC"
             }
           ],
           "options": {
