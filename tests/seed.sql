@@ -1,13 +1,14 @@
--- small made up data for the tests, loaded into an empty test database
--- the real data changes every day, so the tests can't know the right answers for it
--- here we know exactly what is inside, so we also know exactly what the api has to return
+-- a small set of made up data for the tests, conftest.py loads it into an empty test database
+-- the real data changes every day, so a test can't know the right answer for it
+-- here I know exactly what's inside, so I also know exactly what the api has to give back
 --
 -- what the tests expect from this data, for Sinner (S0AG):
 --   clay: 4 wins, 1 loss    hard: 1 win, 1 loss (the walkover in the last tournament doesn't count)
---   7 played matches, the newest one is the final he lost to Djokovic
+--   7 played matches, and the newest one is the final he lost to Djokovic
 --   head to head with Alcaraz: Sinner 2, Alcaraz 1 (again without the walkover)
 
 
+-- four players, the matches below point to them by id (foreign key), so they have to go in first
 INSERT INTO players (player_id, name, hand, height, country) VALUES
     ('D643', 'Novak Djokovic',   'R', 188, 'SRB'),
     ('S0AG', 'Jannik Sinner',    'R', 191, 'ITA'),
@@ -15,13 +16,15 @@ INSERT INTO players (player_id, name, hand, height, country) VALUES
     ('Z355', 'Alexander Zverev', 'R', 198, 'GER');
 
 
+-- nine matches in four tournaments, each one is there to check something in the api
+-- the columns that aren't listed here (ranks, minutes...) stay empty, the tests don't need them
 INSERT INTO matches (tourney_id, match_num, tourney_name, surface, tourney_date, winner_id, loser_id, score, round) VALUES
-    -- first clay tournament, Sinner wins both
+    -- first clay tournament, Sinner wins both of his matches
     ('2025-100', 1, 'Clay Test Open',    'Clay', '2025-04-07', 'S0AG', 'Z355', '6-3 6-4',       'R16'),
     ('2025-100', 2, 'Clay Test Open',    'Clay', '2025-04-07', 'A0E2', 'D643', '6-4 7-5',       'R16'),
     ('2025-100', 3, 'Clay Test Open',    'Clay', '2025-04-07', 'S0AG', 'A0E2', '6-2 6-3',       'SF'),
 
-    -- second clay tournament, Sinner wins two and loses the final to Alcaraz
+    -- second clay tournament, Sinner wins two and then loses the final to Alcaraz
     ('2025-200', 1, 'Clay Test Masters', 'Clay', '2025-05-05', 'S0AG', 'D643', '7-6(4) 6-4',    'QF'),
     ('2025-200', 2, 'Clay Test Masters', 'Clay', '2025-05-05', 'S0AG', 'Z355', '6-1 6-1',       'SF'),
     ('2025-200', 3, 'Clay Test Masters', 'Clay', '2025-05-05', 'A0E2', 'S0AG', '6-4 3-6 6-3',   'F'),
@@ -30,5 +33,5 @@ INSERT INTO matches (tourney_id, match_num, tourney_name, surface, tourney_date,
     ('2025-300', 1, 'Hard Test Cup',     'Hard', '2025-08-11', 'S0AG', 'A0E2', '6-3 2-1 RET',   'SF'),
     ('2025-300', 2, 'Hard Test Cup',     'Hard', '2025-08-11', 'D643', 'S0AG', '6-4 6-4',       'F'),
 
-    -- a walkover, no tennis was played, so the stats have to leave it out
+    -- a walkover, no tennis was played, so the played_matches view has to leave it out of every stat
     ('2025-400', 1, 'Indoor Test Open',  'Hard', '2025-10-27', 'S0AG', 'A0E2', 'W/O',           'F');

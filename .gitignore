@@ -1,8 +1,11 @@
-# python bytecode cache, gets created automatically when the script runs
+# .gitignore tells git which files to never track, so they never end up on github
+# mostly that's passwords, files that are made by tools, and things that only make sense on my computer
+
+# python's bytecode cache, python makes it by itself when a script runs
 __pycache__/
 *.pyc
 
-# passwords and local settings - this one must never end up on github
+# my passwords and local settings, this one must never end up on github
 .env
 
 # virtual environments, in case I make one
@@ -12,25 +15,25 @@ venv/
 # vs code settings, nobody else needs them
 .vscode/
 
-# terraform downloads its plugins here, it's huge and gets downloaded again with terraform init
+# terraform downloads its plugins (providers) here, it's huge and terraform init downloads it again anyway
 .terraform/
 
-# terraform state, the list of everything terraform created on aws
-# it can hold secrets and ip addresses, so it stays on my computer only
+# the terraform state, terraform's list of everything it created on aws
+# it can hold secrets and ip addresses, so it stays only on my computer
 *.tfstate
 *.tfstate.*
 
-# files with my own values for the variables
+# files with my own values for the terraform variables
 *.tfvars
 
-# made by terraform with the ip of the current server, it changes every time
+# terraform writes this file with the ip of the current server, and the ip changes with every new server
 ansible/inventory.ini
 
-# kubernetes secret with the real password, same idea as .env
+# the kubernetes secret with the real password, same idea as .env
 k8s/secret.yaml
 
-# my notes for claude code, they stay on my computer only
+# my notes for claude code, they stay only on my computer
 CLAUDE.md
 
-# made by pytest when the tests run
+# pytest makes this folder when the tests run
 .pytest_cache/

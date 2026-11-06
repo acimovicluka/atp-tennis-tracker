@@ -1,8 +1,9 @@
-# things terraform prints at the end of terraform apply
-# the ip changes every time the server is created again, so this saves looking it up in the console
+# outputs are the things terraform prints at the end of terraform apply
+# the ip changes every time terraform creates the server again, so this saves me looking it up in the aws console
+# terraform output prints them again later, without changing anything
 
 
-# the public ip of the server
+# the public ip of the server, I paste this into the Deploy workflow on github
 output "public_ip" {
   value = aws_instance.atp.public_ip
 }

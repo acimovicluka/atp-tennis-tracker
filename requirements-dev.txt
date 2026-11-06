@@ -1,5 +1,5 @@
-# packages only needed for running the tests, the docker image doesn't get these
-# the -r line pulls in everything from requirements.txt too, so one install is enough
+# the packages that are only needed to run the tests, the docker image doesn't get these
+# the -r line pulls in everything from requirements.txt too, so pip install -r requirements-dev.txt is the only install needed
 -r requirements.txt
-pytest==9.2.0   # finds the test_ functions, runs them and shows which ones failed
-httpx2==2.16.0   # fastapi's TestClient needs it to send requests to the api (the older httpx gives a warning)
+pytest==9.2.0   # pytest finds every test_ function, runs it and shows which ones failed
+httpx2==2.16.0   # fastapi's TestClient uses it to send requests to the api (the older httpx gives a warning)

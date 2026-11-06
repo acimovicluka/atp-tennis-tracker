@@ -1,33 +1,33 @@
 # the postgres database, the kubernetes version of the db service in docker-compose.yml
-# two things in one file, split by ---
+# this file has two things in it, split by ---
 # a Service that gives the database a fixed name, and a StatefulSet that runs postgres itself
 
 # the Service is the address of the database inside the cluster
 # it's called "db", so DB_HOST: db works exactly like it does in compose
-# there's no way to reach it from outside the cluster, same as compose where the db has no ports
+# nobody can reach it from outside the cluster, the same as in compose where the db has no ports
 apiVersion: v1
 kind: Service
 metadata:
   name: db
 spec:
   selector:
-    app: db               # sends traffic to every pod with the label app: db, the StatefulSet below
+    app: db               # the Service sends traffic to every pod with the label app: db, which is the StatefulSet below
   ports:
-    - port: 5432          # postgres port
+    - port: 5432          # the postgres port
 ---
-# a StatefulSet is a Deployment for things that keep data
-# the pod always gets the same name (db-0) and always gets its own disk back after a restart
+# a StatefulSet is like a Deployment, but for things that keep data
+# kubernetes always gives the pod the same name (db-0), and always gives it its own disk back after a restart
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: db
 spec:
   serviceName: db
-  replicas: 1             # one database, two copies of postgres would fight over the same data
+  replicas: 1             # only one database, two copies of postgres would fight over the same data
   selector:
     matchLabels:
       app: db
-  template:               # everything under here describes the pod that gets made
+  template:               # everything under here describes the pod that kubernetes makes
     metadata:
       labels:
         app: db           # the label the Service above looks for
@@ -37,7 +37,8 @@ spec:
           image: postgres:16
           ports:
             - containerPort: 5432
-          # same three settings as in compose, but taken from the atp-db secret instead of .env
+          # the same three settings as in compose, but kubernetes takes them from the atp-db secret instead of .env
+          # secretKeyRef means: take the value of this key from that secret
           env:
             - name: POSTGRES_DB
               valueFrom:
@@ -54,10 +55,11 @@ spec:
                 secretKeyRef:
                   name: atp-db
                   key: DB_PASSWORD
-            # keeps the data one folder deeper inside the disk, postgres wants an empty folder on the first start
+            # postgres keeps its data one folder deeper inside the disk,
+            # because it wants a completely empty folder on its first start and a new disk isn't always empty
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
-          # the same check as the compose healthcheck
+          # this is the readiness probe, the same check as the healthcheck in compose
           # until pg_isready says yes, kubernetes doesn't send anything to this pod
           readinessProbe:
             exec:
@@ -68,20 +70,21 @@ spec:
             # the database files live on the disk from volumeClaimTemplates below
             - name: db-data
               mountPath: /var/lib/postgresql/data
-            # schema.sql from the atp-schema configmap, postgres runs it when the database is empty
+            # kubernetes puts schema.sql from the atp-schema configmap into this folder,
+            # and postgres runs it by itself when the database is empty
             - name: schema
               mountPath: /docker-entrypoint-initdb.d
       volumes:
         - name: schema
           configMap:
             name: atp-schema
-  # asks kubernetes for a 1 GB disk that stays even when the pod is deleted
-  # this is what the db-data volume is in compose
+  # this asks kubernetes for a 1 GB disk (a PVC) that stays even when the pod or the whole k8s/ folder is deleted
+  # it's what the db-data volume is in compose, and it's why the data is still there the next time I run kubectl apply
   volumeClaimTemplates:
     - metadata:
         name: db-data
       spec:
-        accessModes: ["ReadWriteOnce"]   # only one pod at a time can write to it
+        accessModes: ["ReadWriteOnce"]   # only one pod at a time can write to this disk
         resources:
           requests:
             storage: 1Gi

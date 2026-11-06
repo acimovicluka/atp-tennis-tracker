@@ -1,16 +1,19 @@
-# grafana, a web page with charts for every player, read straight from the database
-# pick a player from the dropdown at the top and every chart switches to him
-# four things in this file, split by ---
+# grafana is a web page with charts, it has two dashboards:
+# "ATP players" reads straight from the database, you pick a player from the dropdown at the top and every chart switches to him
+# "ATP api" reads the numbers prometheus collects and shows how the api itself is doing
+# this file has four things in it, split by ---
 
-# tells grafana where the database is and where to find the dashboard
-# grafana reads these files by itself when it starts, this is called provisioning
+# a ConfigMap that tells grafana where its data comes from (datasources) and where to find the dashboards
+# grafana reads these files by itself when it starts, this is called provisioning,
+# so nobody has to click anything together in the grafana page, everything is in this file
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-provisioning
 data:
-  # the database connection, same db Service as the api uses
-  # $DB_USER, $DB_NAME and $DB_PASSWORD come from the atp-db secret through the env part of the Deployment
+  # the database connection, grafana uses the same db Service as the api
+  # grafana fills in $DB_USER, $DB_NAME and $DB_PASSWORD from its environment,
+  # and the Deployment below takes them from the atp-db secret, so the password isn't written here
   datasources.yaml: |
     apiVersion: 1
     datasources:
@@ -26,12 +29,12 @@ data:
           postgresVersion: 1600
         secureJsonData:
           password: $DB_PASSWORD
-      # prometheus, the numbers about how the api is doing, from k8s/prometheus.yaml
+      # the second datasource is prometheus (k8s/prometheus.yaml), with the numbers about how the api is doing
       - name: Prometheus
         uid: atp-prometheus
         type: prometheus
         url: http://prometheus:9090
-  # says "load every dashboard file from /etc/grafana/dashboards"
+  # this tells grafana to load every dashboard file it finds in /etc/grafana/dashboards
   dashboards.yaml: |
     apiVersion: 1
     providers:
@@ -40,8 +43,10 @@ data:
         options:
           path: /etc/grafana/dashboards
 ---
-# the dashboards themselves, written in grafana's own json format
-# every panel is one SQL query, $player and $opponent are the two dropdowns at the top
+# a ConfigMap with the dashboards themselves, written in grafana's own json format
+# in the players dashboard every panel is one sql query, mostly the same sql as in api.py
+# $player and $opponent are the two dropdowns at the top, grafana swaps them for the ids you picked
+# every panel also has a description, it shows up when you hover over the little i next to its title
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -585,7 +590,8 @@ data:
         "list": []
       }
     }
-  # the second dashboard, how the api itself is doing, from the prometheus numbers
+  # the second dashboard shows how the api itself is doing: is it up, how many requests, how many errors, how fast
+  # its panels ask prometheus (in promql, prometheus' own query language) instead of the database
   api.json: |
     {
       "uid": "atp-api",
@@ -1008,7 +1014,7 @@ data:
       }
     }
 ---
-# runs grafana and keeps it running, the same way api.yaml runs the api
+# a Deployment that runs grafana and keeps it running, the same way api.yaml runs the api
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1030,21 +1036,21 @@ spec:
           ports:
             - containerPort: 3000
           env:
-            # anyone who opens the page can look at the charts without logging in, but can't change them
+            # these two let anyone who opens the page look at the charts without logging in (as a Viewer), but not change them
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"
             - name: GF_AUTH_ANONYMOUS_ORG_ROLE
               value: Viewer
-            # the players dashboard opens right away instead of grafana's welcome page
+            # grafana opens the players dashboard right away, instead of its own welcome page
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /etc/grafana/dashboards/players.json
-            # the admin login is admin with the database password, only needed to edit the dashboard
+            # the admin login is the user admin with the database password, I only need it to edit a dashboard
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: atp-db
                   key: DB_PASSWORD
-            # used by datasources.yaml above to log into the database
+            # grafana puts these three into datasources.yaml above, so it can log into the database
             - name: DB_NAME
               valueFrom:
                 secretKeyRef:
@@ -1060,21 +1066,22 @@ spec:
                 secretKeyRef:
                   name: atp-db
                   key: DB_PASSWORD
-          # grafana has its own health address, same idea as /ping on the api
+          # grafana has its own health address, kubernetes uses it the same way it uses /ready on the api
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
             periodSeconds: 5
           volumeMounts:
-            # the two provisioning files go where grafana looks for them
+            # kubernetes puts the two provisioning files exactly where grafana looks for them when it starts
+            # subPath takes only one file out of the ConfigMap, instead of the whole thing as a folder
             - name: provisioning
               mountPath: /etc/grafana/provisioning/datasources/atp.yaml
               subPath: datasources.yaml
             - name: provisioning
               mountPath: /etc/grafana/provisioning/dashboards/atp.yaml
               subPath: dashboards.yaml
-            # the dashboard json
+            # and the two dashboard json files go into the folder dashboards.yaml points to
             - name: dashboard
               mountPath: /etc/grafana/dashboards
       volumes:
@@ -1085,7 +1092,8 @@ spec:
           configMap:
             name: grafana-dashboard
 ---
-# the address of grafana, port 3000, the same way the api is on 8000
+# the Service is the address of grafana, on port 3000, the same way the api is on 8000
+# on k3s (aws) that's http://<ip>:3000, on docker desktop I reach it with kubectl port-forward
 apiVersion: v1
 kind: Service
 metadata:

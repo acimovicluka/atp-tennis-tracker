@@ -1,25 +1,29 @@
-# git history, the container doesnt need it
+# .dockerignore tells docker which files to leave out when COPY . . copies the project into the image
+# it works like .gitignore, but for the image instead of github
+# less stuff in the image means a smaller image, a faster build, and no secrets inside it
+
+# the git history, the container doesn't need it
 .git
 .gitignore
 
-# python cache files, they get made again inside the container anyway
+# python cache files, python makes them again inside the container anyway
 __pycache__
 *.pyc
 
-# passwords never go inside the image
+# the password must never get inside the image, anyone who pulls the image from GHCR could read it
 .env
 
-# virtual environments and editor settings
+# virtual environments and editor settings from my computer
 venv
 .venv
 .vscode
 
-# the docker files themselves, the image doesnt need its own recipe
+# the docker files themselves, the image doesn't need its own recipe
 Dockerfile
 .dockerignore
 docker-compose.yml
 
-# the tests run in CI before the image is built, the image itself doesn't need them
+# CI runs the tests before it builds the image, so the image itself doesn't need them
 tests
 requirements-dev.txt
 .pytest_cache

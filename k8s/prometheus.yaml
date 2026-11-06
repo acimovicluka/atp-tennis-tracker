@@ -1,9 +1,9 @@
-# prometheus, it collects numbers about the api over time
-# every 15 seconds it opens http://api:8000/metrics and saves what it finds
-# grafana then draws charts from those numbers
-# three things in this file, split by ---
+# prometheus collects numbers about the api over time (how many requests, how many errors, how fast)
+# every 15 seconds it opens http://api:8000/metrics and saves what it finds there (this is called scraping)
+# grafana then reads those numbers from prometheus and draws the charts in the "ATP api" dashboard
+# this file has three things in it, split by ---
 
-# the prometheus settings file, what to read and how often
+# a ConfigMap with the prometheus settings file: what prometheus reads and how often
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,13 +11,13 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 15s          # how often prometheus asks for new numbers
+      scrape_interval: 15s          # how often prometheus asks the api for new numbers
     scrape_configs:
-      - job_name: api               # the name these numbers get, grafana uses it
+      - job_name: api               # the name prometheus gives these numbers, grafana uses it in its queries
         static_configs:
           - targets: ["api:8000"]   # the api Service, prometheus reads /metrics there by default
 ---
-# runs prometheus and keeps it running
+# a Deployment that runs prometheus and keeps it running
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,11 +36,12 @@ spec:
         - name: prometheus
           image: prom/prometheus:v3.4.0
           args:
-            - --config.file=/etc/prometheus/prometheus.yml
-            - --storage.tsdb.path=/prometheus
-            - --storage.tsdb.retention.time=7d   # keeps one week of numbers, older ones get deleted
+            - --config.file=/etc/prometheus/prometheus.yml   # the settings file from the ConfigMap above
+            - --storage.tsdb.path=/prometheus                # where prometheus saves the numbers
+            - --storage.tsdb.retention.time=7d   # prometheus keeps one week of numbers and deletes anything older
           ports:
             - containerPort: 9090
+          # prometheus has its own ready address, kubernetes uses it the same way it uses /ready on the api
           readinessProbe:
             httpGet:
               path: /-/ready
@@ -49,8 +50,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
-            # the numbers are kept in an emptyDir, a folder that lives as long as the pod
-            # if the pod is replaced the history starts over, that's fine for this project
+            # prometheus keeps the numbers in an emptyDir, a folder that only lives as long as the pod does
+            # if kubernetes replaces the pod the history starts over, and that's fine for this project
             - name: data
               mountPath: /prometheus
       volumes:
@@ -60,8 +61,9 @@ spec:
         - name: data
           emptyDir: {}
 ---
-# the address of prometheus inside the cluster
-# no LoadBalancer here, only grafana needs to reach it, so it stays closed to the outside like the database
+# the Service is the address of prometheus inside the cluster
+# there's no LoadBalancer here: only grafana needs to reach prometheus,
+# so it stays closed to the outside, like the database
 apiVersion: v1
 kind: Service
 metadata:

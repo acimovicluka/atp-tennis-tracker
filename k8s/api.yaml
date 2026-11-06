@@ -1,7 +1,7 @@
 # the api, the kubernetes version of the api service in docker-compose.yml
 # a Deployment keeps the api running, and a Service lets the browser reach it
 
-# a Deployment says "there should always be this many api pods running"
+# a Deployment tells kubernetes "there should always be this many api pods running"
 # if the pod crashes or stops answering, kubernetes makes a new one by itself
 apiVersion: apps/v1
 kind: Deployment
@@ -17,17 +17,17 @@ spec:
       labels:
         app: api               # the label the Service below looks for
     spec:
-      # kubernetes normally puts an env variable for every Service into every pod
-      # for the db Service one of them is DB_PORT=tcp://10.x.x.x:5432, which breaks int(os.getenv("DB_PORT")) in api.py
-      # this turns that off, so DB_PORT stays unset and the code uses its default 5432
+      # kubernetes normally puts environment variables for every Service into every pod
+      # for the db Service one of them is DB_PORT=tcp://10.x.x.x:5432, and that breaks int(os.getenv("DB_PORT")) in db.py
+      # this switches that off, so DB_PORT stays unset and db.py uses its default 5432
       enableServiceLinks: false
       containers:
         - name: api
           image: ghcr.io/acimovicluka/atp-tennis-tracker:latest   # the image github actions builds on every push, the fetcher uses the same one
-          imagePullPolicy: Always        # always check GHCR for a newer latest when a pod starts
+          imagePullPolicy: Always        # every time a pod starts, kubernetes checks GHCR for a newer latest
           ports:
             - containerPort: 8000
-          # same settings as in compose, the database is the "db" Service
+          # the same settings as in compose, and the database is the "db" Service
           env:
             - name: DB_HOST
               value: db
@@ -47,14 +47,15 @@ spec:
                   name: atp-db
                   key: DB_PASSWORD
           # kubernetes checks the api in two different ways
-          # readiness: until /ready answers, meaning the api can reach the database, no traffic is sent to this pod
+          # readiness probe: kubernetes calls /ready every 5 seconds, and until it answers
+          # (meaning the api can reach the database) kubernetes sends no traffic to this pod
           readinessProbe:
             httpGet:
               path: /ready
               port: 8000
             periodSeconds: 5
-          # liveness: if /ping stops answering three times in a row, kubernetes restarts the pod
-          # it uses /ping and not /ready, a database outage shouldn't make kubernetes restart a healthy api over and over
+          # liveness probe: if /ping stops answering three times in a row, kubernetes restarts the pod
+          # it uses /ping and not /ready, because a database outage shouldn't make kubernetes restart a healthy api over and over
           livenessProbe:
             httpGet:
               path: /ping
@@ -63,9 +64,9 @@ spec:
             periodSeconds: 10
             failureThreshold: 3
 ---
-# the address of the api
-# LoadBalancer makes it reachable from outside the cluster
-# on docker desktop that means http://localhost:8000, the same address as with compose
+# the Service is the address of the api
+# type LoadBalancer makes it reachable from outside the cluster
+# on k3s (aws) that's http://<ip>:8000, on docker desktop it stays <pending>, so there I use kubectl port-forward
 apiVersion: v1
 kind: Service
 metadata:
@@ -75,5 +76,5 @@ spec:
   selector:
     app: api
   ports:
-    - port: 8000          # the port on my computer
+    - port: 8000          # the port the Service opens to the outside
       targetPort: 8000    # the port inside the pod, where uvicorn listens

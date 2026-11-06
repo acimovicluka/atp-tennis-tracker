@@ -1,68 +1,71 @@
-# the whole project in one file: database, fetcher and api
-# start everything with: docker compose up -d
-# settings come from the .env file next to this one
-# if there is no .env, the value after :- is used instead
-# the password has no default on purpose: :? stops compose with that message if DB_PASSWORD is missing
+# docker-compose.yml describes the whole project in one file: the database, the fetcher and the api
+# with one command (docker compose up -d) compose starts all three, in the right order, on one shared network
+# this is the quick way to run the project on my computer, grafana and prometheus only exist in k8s/
+#
+# compose reads the settings from the .env file next to this one
+# ${DB_NAME:-tennis} means: take DB_NAME from .env, and if it isn't there use tennis
+# the password has no default on purpose: ${DB_PASSWORD:?...} stops compose with that message if DB_PASSWORD is missing
 
-# name of the project, docker uses it in front of every container, volume and network name
+# the project name, docker puts it in front of every container, volume and network name (atp-tennis-tracker-api-1...)
 name: atp-tennis-tracker
 
 services:
 
-  # postgres database, the official image, nothing to build here
+  # the postgres database, it uses the official image so there's nothing to build
   db:
     image: postgres:16
     environment:
-      # postgres makes the database and the user from these the very first time it starts
+      # postgres creates the database and the user from these the very first time it starts
       POSTGRES_DB: ${DB_NAME:-tennis}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in the .env file}
     volumes:
-      # the data lives in a volume, so it's still there after the container is removed
+      # the data lives in a named volume, so it's still there after compose removes the container
       - db-data:/var/lib/postgresql/data
-      # postgres runs every sql file from this folder on the very first start, so the tables make themselves
+      # postgres runs every sql file from this folder on its very first start, so it makes the tables from schema.sql by itself
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      # every 5 seconds docker asks the database if it's ready to take connections
+      # every 5 seconds docker asks postgres (with pg_isready) if it's ready to take connections
       # the fetcher and the api wait for a yes before they start
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${DB_USER:-postgres} -d ${DB_NAME:-tennis}"]
       interval: 5s
       timeout: 5s
       retries: 10
-    restart: unless-stopped   # if it crashes, or docker restarts, it comes back up by itself
-    # no ports here on purpose, only the fetcher and the api talk to the database
-    # and they reach it inside docker's own network by the name "db"
+    restart: unless-stopped   # if the container crashes or docker restarts, docker brings it back up by itself
+    # there are no ports here on purpose, so nobody outside docker can reach the database
+    # only the fetcher and the api talk to it, and they find it on docker's own network by the name "db"
 
-  # downloads all the csv files from TML and fills the database, then stops
+  # the fetcher downloads all the csv files from TML, fills the database and then stops
   fetcher:
-    build: .   # makes the image from the Dockerfile in this folder
-    command: ["python", "fetcher.py"]   # same image as the api, only the command is different
+    build: .   # compose builds the image from the Dockerfile in this folder
+    command: ["python", "fetcher.py"]   # the same image as the api, compose only swaps the command
     environment:
-      DB_HOST: db   # the database is the "db" service above, not localhost
+      DB_HOST: db   # inside a container localhost is the container itself, so the fetcher reaches the database by the service name "db"
       DB_NAME: ${DB_NAME:-tennis}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in the .env file}
     depends_on:
       db:
-        condition: service_healthy   # don't start until the database says it's ready
+        condition: service_healthy   # compose doesn't start the fetcher until the healthcheck above says yes
 
-  # the api, stays up the whole time
+  # the api, it stays up the whole time
   api:
     build: .
-    # no command here, so it runs the CMD from the Dockerfile, which is uvicorn
+    # there's no command here, so the container runs the CMD from the Dockerfile, which is uvicorn
     environment:
       DB_HOST: db
       DB_NAME: ${DB_NAME:-tennis}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:?put DB_PASSWORD in the .env file}
     ports:
-      # left side is your computer, right side is the container
+      # this connects a port on my computer (left) to the port inside the container (right)
+      # so http://localhost:8000 on my computer reaches uvicorn inside the container
       - "${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
-# the volume for the database data, docker keeps it until you delete it yourself
+# the named volume for the database data, docker keeps it until I delete it myself (docker compose down -v)
 volumes:
   db-data:

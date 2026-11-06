@@ -1,16 +1,18 @@
-# checks the project on github every time I push
-# if something is broken, github shows a red x next to the commit instead of a green check
+# the CI workflow checks the project on github every time I push
+# it runs the tests, builds the docker image and uploads it to GHCR, where the server pulls it from
+# if something is broken, github shows a red x next to the commit instead of a green check,
+# and the badge at the top of the README shows the same
 
 name: CI
 
-# when this runs: on every push to main, and on pull requests into main
+# when github runs this: on every push to main, and on pull requests into main
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
-# the image lives on GHCR, github's own place for docker images
+# the image lives on GHCR, github's own registry for docker images
 # github only allows lowercase names there
 env:
   IMAGE: ghcr.io/acimovicluka/atp-tennis-tracker
@@ -21,14 +23,14 @@ jobs:
     runs-on: ubuntu-latest
 
     # by default a workflow can only read the repo
-    # packages: write lets it upload the image to GHCR
+    # packages: write lets this workflow upload the image to GHCR
     permissions:
       contents: read
       packages: write
 
-    # an empty postgres just for the tests, github starts it next to the machine and throws it away after
-    # same idea as the db service in docker-compose.yml
-    # the password here is not a secret, this database only lives for a few minutes and holds made up data
+    # services start an empty postgres just for the tests, github runs it next to the machine and throws it away after
+    # it's the same idea as the db service in docker-compose.yml
+    # the password here is not a secret, this database only lives for a few minutes and only holds made up data
     services:
       postgres:
         image: postgres:16
@@ -37,7 +39,7 @@ jobs:
           POSTGRES_PASSWORD: test
         ports:
           - 5432:5432
-        # wait until postgres is ready before the steps start, like the healthcheck in docker-compose.yml
+        # github waits until postgres is ready before the steps start, like the healthcheck in docker-compose.yml
         options: >-
           --health-cmd pg_isready
           --health-interval 5s
@@ -59,9 +61,9 @@ jobs:
       - name: Install packages
         run: pip install -r requirements-dev.txt
 
-      # runs everything in the tests folder against the test database above
-      # it fills the database with tests/seed.sql and checks that every endpoint gives the right answer
-      # if one test fails, the run stops here and no image gets built or uploaded
+      # pytest runs everything in the tests folder against the test database above
+      # conftest.py fills the database with tests/seed.sql, and the tests check that every endpoint gives the right answer
+      # if one test fails, the run stops here, and github never builds or uploads a broken image
       # python -m pytest instead of just pytest, so python can find api.py and fetcher.py in the main folder
       - name: Run the tests
         run: python -m pytest -v
@@ -71,9 +73,9 @@ jobs:
           DB_USER: postgres
           DB_PASSWORD: test
 
-      # builds the image the same way I do with docker build on my computer
+      # github builds the image the same way I do with docker build on my computer
       # if the Dockerfile is broken, this is where it shows
-      # it gets two names: the commit it was made from, and latest
+      # the image gets two names (tags): the commit it was made from, and latest
       # the label ties the image to this repo, so it shows up on the repo page
       - name: Build the docker image
         run: |
@@ -83,13 +85,13 @@ jobs:
             --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
             .
 
-      # logs docker into GHCR with a key github makes for this run only, so no password of mine is needed
-      # only on a push to main, a pull request only gets checked and never uploads anything
+      # logs docker into GHCR with a token github makes only for this run (GITHUB_TOKEN), so no password of mine is needed
+      # this only happens on a push to main, a pull request only gets checked and never uploads anything
       - name: Log in to GHCR
         if: github.event_name == 'push'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # uploads both names of the image to GHCR
+      # uploads both names of the image to GHCR, and k3s on the server pulls latest from there
       - name: Push the image to GHCR
         if: github.event_name == 'push'
         run: docker push --all-tags $IMAGE

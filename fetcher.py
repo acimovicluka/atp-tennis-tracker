@@ -1,103 +1,115 @@
-import csv        # reads csv files
-import io         # only used for StringIO, see download_csv
-import os         # only used to find schema.sql next to this file
-import requests   # downloads files from the internet
+# fetcher.py downloads the match results, cleans them up and saves them into the database
+# it doesn't stay running like the api, it does its job and stops
+# on kubernetes it gets started every morning at 6, with compose it runs once when everything starts
 
-from db import connect   # opens a database connection, the settings live in db.py
+import csv        # python's own tool for reading csv files
+import io         # only needed for StringIO, explained in download_csv
+import os         # only needed to find schema.sql
+import requests   # downloads files from the internet, it's in requirements.txt
+
+from db import connect   # the function from db.py that opens the database connection
 
 
-# where the csv files live, one file per season (2025.csv and so on)
-# TML moved from github to its own site, the github copy stopped in january 2026
-# kept in one place so it's easy to swap again if the source moves one more time
+# this is where all the csv files are, one file for each season (2022.csv and so on)
+# the source already moved twice (first Sackmann's repo, then the TML github copy that stopped in january 2026)
+# so the address is written only here, and if it moves again I only change this one line
 BASE_URL = "https://stats.tennismylife.org/data"
 
-# which seasons get downloaded
+# the seasons I want in the database (2022 is the earlies in TML base)
 SEASONS = [2022, 2023, 2024, 2025, 2026]
 
-# every file the fetcher reads: the tournament that is being played right now, plus one file per season
-# finished tournaments are in the season file, the one in progress is only in ongoing_tourneys.csv
-# the ongoing file goes first: on the day a tournament moves into the season file it can be in both,
-# and the file that comes later wins (see main), so the finished version from the season file is the one that stays
-FILES = ["ongoing_tourneys.csv"] + [f"{year}.csv" for year in SEASONS]   # makes 2022.csv, 2023.csv... out of SEASONS
+# the list of files the fetcher goes through, in this order
+# the line at the end takes every year from SEASONS and adds .csv, so it gives 2022.csv, 2023.csv...
+# ongoing_tourneys.csv has the tournament that's being played right now, finished ones are in the season files
+# it goes first on purpose: on the day a tournament ends it can be in both files,
+# and since every file replaces its tournaments (see main), the season file comes later and its finished version stays
+FILES = ["ongoing_tourneys.csv"] + [f"{year}.csv" for year in SEASONS]
 
-# schema.sql sits next to this file, on my computer and inside the docker image
+# the full path to schema.sql, which sits in the same folder as this file
+# read it from the inside out: __file__ is this file, dirname is its folder, join adds schema.sql to it
+# this way it works both on my computer and inside the docker image (/app/schema.sql)
 SCHEMA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
 
 
-# downloads one csv file from TML and gives back its rows
-# every row comes back as a dict, so you can write row["surface"] instead of row[2]
+# downloads one csv file and gives back all of its rows
+# every row comes back as a dict, so later I can write row["surface"] instead of guessing it's row[2]
 def download_csv(name):
-    url = f"{BASE_URL}/{name}"   # {name} gets replaced, so this ends with /2025.csv or /ongoing_tourneys.csv
+    url = f"{BASE_URL}/{name}"   # glues the address and the file name together, like .../data/2025.csv
     print(f"Downloading {url}")
-    response = requests.get(url, timeout=60)   # gives up after a minute instead of hanging forever
-    response.raise_for_status()   # if the site returns an error like 404, stop right here instead of loading nothing
-    # read this line from the inside out:
-    # response.text is the whole file as one long piece of text
-    # StringIO makes that text act like a file, because the csv reader expects a file
-    # DictReader turns every line into a dict, using the first line as column names
-    # list() collects all of them into one list
+    response = requests.get(url, timeout=60)   # if the site doesn't answer in a minute, give up instead of waiting forever
+    response.raise_for_status()   # if the site sends back an error (like 404), stop here, otherwise we'd go on with nothing
+    # this line does a few things at once, read it from the inside out:
+    # response.text is the whole file as one big piece of text
+    # StringIO lets that text pretend it's a file, because the csv reader only knows how to read files
+    # DictReader reads it line by line and uses the first line (the header) as the names of the columns
+    # list() puts all the rows together into one list
     return list(csv.DictReader(io.StringIO(response.text)))
 
 
-# helpers for cleaning csv values
-# everything in a csv is text and lots of fields are empty,
-# so these turn the text into proper values, or None when there's nothing usable
+# the next two functions clean up values from the csv
+# everything in a csv is just text, and a lot of fields are empty
+# the database wants real numbers and dates, so these turn the text into the right type,
+# and if there's nothing usable they give back None, which ends up as an empty (NULL) field in the database
 
 
-# turns text into a whole number, so "170" becomes 170
-# empty or broken values become None instead of crashing the whole run
+# turns text into a whole number, so "188" becomes 188
+# try means: give it a go, and if it fails, do what's under except instead of crashing
+# without this, one empty height field would stop the whole fetcher
 def to_int(value):
     try:
         return int(value)
-    except (TypeError, ValueError):   # TypeError when the value is None, ValueError when it's text like "" or "abc"
+    except (TypeError, ValueError):   # TypeError when there's no value at all (None), ValueError for text like "" or "abc"
         return None
 
 
-# turns the csv date 20250824 into 2025-08-24, the format postgres understands
+# the csv writes dates as 20250824, postgres wants 2025-08-24, so this adds the dashes
 def to_date(value):
-    value = (value or "").strip()   # None becomes "" so strip() can't crash, strip() removes spaces at both ends
-    if len(value) != 8:   # anything that isn't exactly 8 characters isn't a date we can read
+    value = (value or "").strip()   # if there's no value use "" so strip() doesn't crash, strip() cuts spaces off both ends
+    if len(value) != 8:   # a real date here is always exactly 8 characters, anything else gets skipped
         return None
-    return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"   # cut into year, month and day. [0:4] means characters 0 to 3
+    return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"   # [0:4] takes characters 0 to 3 (the year), then the month, then the day
 
 
-# turning csv rows into rows for the database
+# the next two functions turn the csv rows into rows that fit the database tables
 
 
-# collects every player from the matches, each player only once
-# the same player shows up in lots of matches, so they go into a dict keyed on the player id
-# a dict can't have the same key twice, so duplicates just disappear
+# every csv row is one match, and every match has two players in it
+# the same player shows up in hundreds of matches, but in the players table he should be there only once
+# so they go into a dict where the player id is the key
+# a dict can't have the same key twice, so when Sinner shows up again he just overwrites himself
 def extract_players(rows):
     players = {}
     for row in rows:
-        for side in ("winner", "loser"):   # every match has two players, this goes through both of them
-            player_id = (row.get(f"{side}_id") or "").strip()   # winner_id on the first pass, loser_id on the second
+        for side in ("winner", "loser"):   # first round reads the winner, second round the loser of the same match
+            player_id = (row.get(f"{side}_id") or "").strip()   # becomes winner_id the first time and loser_id the second time
             if not player_id:
-                continue   # no id, skip this one and move on to the next
-            # the order here has to match the INSERT into players in main()
+                continue   # no id means I can't save this player, so skip him and go on
+            # the order of these values has to be the same as the columns in the INSERT into players in main()
             players[player_id] = (
                 player_id,
                 row.get(f"{side}_name"),
-                (row.get(f"{side}_hand") or None),   # empty text becomes None, which ends up as NULL in the database
+                (row.get(f"{side}_hand") or None),   # an empty field becomes None, so the database gets NULL and not ""
                 to_int(row.get(f"{side}_ht")),
                 (row.get(f"{side}_ioc") or None),
             )
-    return list(players.values())   # only the values, the ids are already inside them
+    return list(players.values())   # I only need the values, the id is already the first thing in each of them
 
 
-# turns csv rows into rows for the matches table
-# rows that are missing the tournament or one of the players get skipped
+# turns the csv rows into rows for the matches table
+# it also deals with the messy parts of the source, explained below
 def extract_matches(rows):
     matches = []
 
     # some 2025 tournaments (US Open, Cincinnati, Shanghai and a few more) have no match number in the csv
-    # without it a match can't be saved, so we number those ourselves: 1, 2, 3 and so on per tournament
-    # the same csv always gives the same numbers, so running the fetcher again still doesn't create duplicates
-    generated_num = {}   # remembers the last number given out for each tournament
+    # a match can't be saved without one, because the number is part of the primary key
+    # so the fetcher numbers those itself: 1, 2, 3 and so on, separately for every tournament
+    # the csv always comes in the same order, so the numbers are always the same and running it again makes no duplicates
+    generated_num = {}   # remembers which number each tournament got up to
 
-    # the source sometimes has the same match twice under two match numbers (Gijon 2022, a Davis Cup tie in 2024)
-    # two players can only meet once in the same round of the same tournament, so the second copy gets skipped
-    seen = set()   # a set is like a list that can't hold the same thing twice, and checking "is it in there" is fast
+    # sometimes the source has the same match twice, just with two different match numbers (Gijon 2022, a Davis Cup tie in 2024)
+    # two players can't play each other twice in the same round of the same tournament,
+    # so tournament + round + winner + loser is enough to recognize a copy, and the copy gets skipped
+    seen = set()   # a set is like a list that can't hold the same thing twice, and checking if something is in it is fast
 
     for row in rows:
         tourney_id = (row.get("tourney_id") or "").strip()
@@ -105,21 +117,24 @@ def extract_matches(rows):
         winner_id = (row.get("winner_id") or "").strip()
         loser_id = (row.get("loser_id") or "").strip()
 
-        # can't save a match without a tournament or without both players
-        # the database would refuse it anyway because of the foreign key
+        # a match without a tournament or without both players is useless,
+        # and the database would refuse it anyway because of the foreign key, so skip it
         if not tourney_id or not winner_id or not loser_id:
             continue
 
+        # if I've already seen this exact match in this file, it's a copy, skip it
         same_match = (tourney_id, row.get("round"), winner_id, loser_id)
         if same_match in seen:
             continue
         seen.add(same_match)
 
+        # no match number in the csv, so give it the next free number for this tournament
         if match_num is None:
-            generated_num[tourney_id] = generated_num.get(tourney_id, 0) + 1   # .get(..., 0) gives 0 if this tournament has no number yet
+            generated_num[tourney_id] = generated_num.get(tourney_id, 0) + 1   # .get(..., 0) starts from 0 the first time
             match_num = generated_num[tourney_id]
 
-        # the order here has to match the INSERT into matches in main()
+        # one row for the database
+        # the order of these values has to be the same as the columns in the INSERT into matches in main()
         matches.append((
             tourney_id,
             match_num,
@@ -141,26 +156,28 @@ def extract_matches(rows):
     return matches
 
 
-# the actual run, step by step:
-# connect to the database, make sure the schema is up to date, go through every file,
-# save players first and matches after, and commit only at the very end
+# this is where the actual work happens, everything above is just helpers
+# in short: connect to the database, update the schema, go through every file,
+# save the players first and the matches after, and only at the very end save everything for real with commit
 def main():
-    conn = connect()   # this is where python really connects
-    cur = conn.cursor()   # the cursor is what sends sql through the connection
+    conn = connect()   # opens the connection to the database, the settings come from db.py
+    cur = conn.cursor()   # the cursor is what I use to send sql through that connection
 
-    # run schema.sql again, so anything new in it (a table, a view) also lands in a database that already exists
-    # postgres only runs it by itself on the very first start, see the top of schema.sql
-    with open(SCHEMA_FILE, encoding="utf-8") as f:   # with closes the file by itself when the block ends
+    # run schema.sql every time, so if I add something new to it (a table, a view)
+    # it also gets into a database that already exists
+    # postgres runs it by itself only the very first time, when the database is empty
+    with open(SCHEMA_FILE, encoding="utf-8") as f:   # with closes the file by itself when it's done, even if something breaks
         cur.execute(f.read())
 
     for name in FILES:
         rows = download_csv(name)
         print(f"  {len(rows)} match rows")
 
-        # players go in first, because matches point to them (foreign key)
+        # players have to go in before the matches, because a match points to its players (foreign key)
         # executemany runs the same INSERT once for every player in the list
-        # %s are placeholders, psycopg2 fills them in safely. never glue values into sql by hand
-        # ON CONFLICT DO NOTHING skips players that are already in the table
+        # the %s marks are empty spots that psycopg2 fills in safely with the real values
+        # I never glue values straight into the sql text, because that's how sql injection happens
+        # ON CONFLICT DO NOTHING means: if this player is already in the table, just skip him, no error
         players = extract_players(rows)
         cur.executemany(
             """
@@ -172,17 +189,18 @@ def main():
         )
         print(f"  {len(players)} unique players processed")
 
-        # the source fixes and renumbers matches after a tournament is over,
-        # and a tournament in progress gets numbered differently once it moves into the season file
-        # if we only added new rows, the old version would stay next to the fixed one and count twice
-        # so every tournament in this file is first removed and then saved again exactly as the csv has it now
-        # this is safe because nothing is saved until the commit at the end, if anything fails the old data stays
+        # with matches it's not enough to only add the new ones
+        # the source fixes and renumbers matches after a tournament ends,
+        # and a tournament that's still going is numbered differently than in the season file later
+        # if I only added new rows, the old version would stay next to the fixed one and the match would count twice
+        # so every tournament in this file first gets deleted, and then saved again exactly like the csv has it today
+        # this is safe because nothing is really saved until the commit at the end, if it breaks the old data stays
         matches = extract_matches(rows)
-        tourney_ids = list({match[0] for match in matches})   # match[0] is the tourney_id, the {} removes repeats
-        cur.execute("DELETE FROM matches WHERE tourney_id = ANY(%s)", (tourney_ids,))   # ANY means "is one of these"
+        tourney_ids = list({match[0] for match in matches})   # match[0] is the tourney_id, the {} keeps each tournament only once
+        cur.execute("DELETE FROM matches WHERE tourney_id = ANY(%s)", (tourney_ids,))   # ANY means "the tourney_id is one of these"
         print(f"  {cur.rowcount} old matches removed from {len(tourney_ids)} tournaments")
 
-        # ON CONFLICT is still here as a safety net, for the rare csv that has two matches with the same number
+        # ON CONFLICT is still here just in case, for a csv that has two matches with the same number
         cur.executemany(
             """
             INSERT INTO matches (
@@ -197,15 +215,18 @@ def main():
         )
         print(f"  {len(matches)} matches processed")
 
-    # commit is what saves everything for real
-    # until this line nothing is permanent, so if the script crashes halfway the database stays untouched
+    # commit is the moment everything gets saved for real
+    # everything before this line is one transaction: if the fetcher crashes halfway (say the internet drops),
+    # postgres throws away all the changes and the database stays exactly like it was before the run
+    # the api keeps showing the old data the whole time, until the new data is complete
     conn.commit()
     cur.close()
     conn.close()
     print("Done")
 
 
-# only run main() when the file is started directly with python fetcher.py
-# without these two lines python would just read the functions and stop without doing anything
+# main() only runs when I start this file myself with python fetcher.py
+# when another file does import fetcher (like the tests do), python only reads the functions and nothing runs,
+# that's why the tests can check to_int or extract_matches without downloading anything or touching the database
 if __name__ == "__main__":
     main()

@@ -1,54 +1,57 @@
-# everything ansible does on the aws server, step by step from top to bottom
-# run it from wsl with: ansible-playbook -i inventory.ini playbook.yml
-# it's safe to run again, steps that are already done just get skipped
+# the playbook is the list of everything ansible does on the aws server, step by step from top to bottom
+# terraform makes an empty ubuntu server, and this playbook turns it into a server that runs the project
+# I run it from wsl with: ansible-playbook -i inventory.ini playbook.yml (or the Deploy workflow runs it from github)
+# it's safe to run again (idempotent): ansible checks every step first, and skips the ones that are already done
 # the project runs on kubernetes (k3s) here, with the same manifests from k8s/ that I use on docker desktop
 
 - name: Set up the ATP tennis tracker server
-  hosts: atp       # the group from inventory.ini
-  become: true     # run everything with sudo, installing things needs root
+  hosts: atp       # the group from inventory.ini, so ansible runs this on the server terraform just made
+  become: true     # ansible runs everything with sudo, because installing things needs root
 
   # values used further down, kept up here so they're easy to change
   vars:
     repo_url: https://github.com/acimovicluka/atp-tennis-tracker.git
     project_dir: /home/ubuntu/atp-tennis-tracker
-    # the database password is read from my own .env, the one next to docker-compose.yml on my computer
+    # ansible reads the database password from my own .env, the one next to docker-compose.yml on my computer
     # that file never goes to github, so the password never ends up in this playbook either
+    # lookup runs on my computer (not on the server), and trim cuts off any spaces around the value
     db_password: "{{ lookup('ansible.builtin.ini', 'DB_PASSWORD', type='properties', file=playbook_dir + '/../.env') | trim }}"
 
   tasks:
 
     # the server has 2 GB of ram and no swap at all
-    # swap is a piece of the disk used as extra ram when the real one runs out
-    # without it kubernetes and postgres can run out of memory
+    # swap is a piece of the disk that linux uses as extra ram when the real ram runs out
+    # without it kubernetes and postgres can run out of memory and get killed
 
     # makes an empty 2 GB file that will become the swap
-    # "creates" means skip this if /swapfile is already there
+    # "creates" tells ansible to skip this step if /swapfile is already there
     - name: Make a 2 GB swap file
       ansible.builtin.command: fallocate -l 2G /swapfile
       args:
         creates: /swapfile
 
-    # only root should be able to read it, swap can hold bits of anything that was in memory
+    # only root should be able to read it, because swap can hold bits of anything that was in memory
     - name: Only root can read the swap file
       ansible.builtin.file:
         path: /swapfile
         mode: "0600"
 
     # turns the file into swap and switches it on
-    # only runs when the server has no swap yet, so a second run doesn't break anything
+    # ansible only runs this when the server has no swap yet, so a second run doesn't break anything
     - name: Turn on the swap
       ansible.builtin.shell: mkswap /swapfile && swapon /swapfile
       when: ansible_facts['swaptotal_mb'] == 0
 
-    # /etc/fstab is the list of things linux switches on at boot
+    # /etc/fstab is the list of things linux switches on when it boots
     # without this line the swap would be gone after a restart
+    # lineinfile only adds the line if it isn't in the file yet
     - name: Keep the swap on after a restart
       ansible.builtin.lineinfile:
         path: /etc/fstab
         line: "/swapfile none swap sw 0 0"
 
-    # git, to clone the project onto the server
-    # docker isn't needed here anymore, github actions builds the image and k3s downloads it from GHCR by itself
+    # git, so ansible can clone the project onto the server
+    # docker isn't needed here anymore: github actions builds the image, and k3s downloads it from GHCR by itself
     # update_cache is the same as running apt update first
     - name: Install git
       ansible.builtin.apt:
@@ -57,9 +60,10 @@
         update_cache: true
 
     # the project
-    # downloads the repo from github into /home/ubuntu/atp-tennis-tracker
-    # the first run clones it, every run after that pulls whatever is new on github
-    # become: false runs this one as ubuntu instead of root, so the files belong to ubuntu
+    # ansible downloads the repo from github into /home/ubuntu/atp-tennis-tracker
+    # the first run clones it, and every run after that pulls whatever is new on github
+    # so the server always takes the code from github, never from my computer
+    # become: false runs this one step as ubuntu instead of root, so the files belong to ubuntu
     - name: Download the project from github
       ansible.builtin.git:
         repo: "{{ repo_url }}"
@@ -68,24 +72,25 @@
       become: false
 
     # kubernetes
-    # k3s is a small kubernetes made for a single server, it installs with one script
-    # traefik is a web router k3s ships with, we don't need it and it would only eat ram
-    # "creates" skips this when k3s is already installed
+    # k3s is a small kubernetes made for a single server, and it installs with one script
+    # traefik is a web router that comes with k3s, the project doesn't need it and it would only eat ram
+    # "creates" skips this step when k3s is already installed
     - name: Install k3s
       ansible.builtin.shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik" sh -
       args:
         creates: /usr/local/bin/k3s
 
-    # waits until kubernetes says the server is ready to run pods, at most 2 minutes
+    # ansible waits until kubernetes says the server (the node) is ready to run pods, at most 2 minutes
     # k3s kubectl is the same kubectl I use on my computer, it just comes built into k3s
+    # changed_when: false because this only checks something, it never changes anything on the server
     - name: Wait for kubernetes to be ready
       ansible.builtin.command: k3s kubectl wait --for=condition=Ready node --all --timeout=120s
       changed_when: false
 
     # the secret
-    # same as k8s/secret.yaml on my computer, with the password read from my .env
-    # it's written into the project folder on the server, where git never sees it
-    # no_log stops ansible from printing the password in the output
+    # it's the same as k8s/secret.yaml on my computer, with the password from my .env filled in
+    # ansible writes it into the project folder on the server, and .gitignore keeps git from ever seeing it
+    # no_log stops ansible from printing the password in its output
     - name: Write the kubernetes secret
       ansible.builtin.copy:
         dest: "{{ project_dir }}/k8s/secret.yaml"
@@ -102,27 +107,28 @@
         mode: "0600"
       no_log: true
 
-    # schema.sql as a configmap, so postgres can make the tables
-    # on my computer I ran kubectl create configmap once by hand
-    # here --dry-run only writes the configmap out and apply sends it, so running it again doesn't fail
+    # this puts schema.sql into a configmap, so postgres can make the tables from it on its first start
+    # on my computer I ran kubectl create configmap once by hand, but a second create would fail with "already exists"
+    # so here --dry-run only writes the configmap out as yaml, and apply sends it, which works no matter how many times it runs
     - name: Put schema.sql into kubernetes
       ansible.builtin.shell: k3s kubectl create configmap atp-schema --from-file=schema.sql --dry-run=client -o yaml | k3s kubectl apply -f -
       args:
         chdir: "{{ project_dir }}"
 
-    # the same command as on my computer, everything from the k8s folder
+    # the same command I use on my computer, kubernetes creates everything from the k8s folder
     - name: Start the project on kubernetes
       ansible.builtin.command: k3s kubectl apply -f k8s/
       args:
         chdir: "{{ project_dir }}"
 
-    # the image is always called latest, even when the code inside changes,
+    # the image is always called latest, even when the code inside it changes,
     # so kubernetes wouldn't notice anything new on its own
-    # rollout restart makes a new api pod, which downloads the newest latest from GHCR, without the api going down
+    # rollout restart makes kubernetes start a new api pod, which pulls the newest latest from GHCR,
+    # and the old pod only stops once the new one is ready, so the api never goes down
     - name: Restart the api so it uses the new image
       ansible.builtin.command: k3s kubectl rollout restart deployment/api
 
-    # runs the fetcher once right now instead of waiting for 6:00 tomorrow
-    # the epoch at the end makes the name different every time, two jobs can't have the same name
+    # ansible starts the fetcher once right now, so the database fills up without waiting for 6:00 tomorrow
+    # the epoch (seconds since 1970) at the end makes the job name different every time, because two jobs can't have the same name
     - name: Run the fetcher once right now
       ansible.builtin.command: k3s kubectl create job --from=cronjob/fetcher fetcher-ansible-{{ ansible_facts['date_time']['epoch'] }}
