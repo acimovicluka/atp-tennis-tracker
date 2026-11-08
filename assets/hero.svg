@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d1526"/>
+      <stop offset="1" stop-color="#122038"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4f8cff"/>
+      <stop offset="1" stop-color="#c8e64c" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="440" rx="18" fill="url(#bg)"/>
+  <circle cx="1080" cy="40" r="230" fill="#16294a" opacity="0.6"/>
+
+  <!-- left side: name and tagline -->
+  <rect x="60" y="52" width="190" height="3" fill="url(#line)"/>
+  <text x="60" y="94" fill="#7f9cc9" font-family="Consolas, Menlo, monospace" font-size="13" letter-spacing="4">DEVOPS PORTFOLIO · ATP DATA</text>
+  <text x="58" y="160" fill="#ffffff" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="58" font-weight="700">ATP Tennis Tracker</text>
+  <text x="60" y="204" fill="#c9d6ea" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22">Recent form, surface records and head to head</text>
+  <text x="60" y="234" fill="#c9d6ea" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="22">for every ATP player since <tspan fill="#c8e64c">2022</tspan>.</text>
+  <text x="60" y="272" fill="#6f86a8" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14">Updated every morning. Runs on a laptop or on AWS.</text>
+
+  <!-- right side: example api call -->
+  <rect x="740" y="70" width="400" height="190" rx="12" fill="#0a1120" stroke="#24344f"/>
+  <circle cx="764" cy="94" r="5" fill="#ff5f56"/>
+  <circle cx="782" cy="94" r="5" fill="#ffbd2e"/>
+  <circle cx="800" cy="94" r="5" fill="#27c93f"/>
+  <text x="822" y="98" fill="#4f6a91" font-family="Consolas, Menlo, monospace" font-size="12">api</text>
+  <rect x="756" y="114" width="368" height="34" rx="6" fill="#111c30"/>
+  <text x="770" y="136" fill="#c8e64c" font-family="Consolas, Menlo, monospace" font-size="13">GET</text>
+  <text x="806" y="136" fill="#dbe6f7" font-family="Consolas, Menlo, monospace" font-size="13">/players/search?name=đok</text>
+  <rect x="756" y="156" width="368" height="88" rx="6" fill="#0f2a1f"/>
+  <text x="770" y="180" fill="#8fd6a3" font-family="Consolas, Menlo, monospace" font-size="13">[{</text>
+  <text x="790" y="200" fill="#dbe6f7" font-family="Consolas, Menlo, monospace" font-size="13">"player_id": "D643",</text>
+  <text x="790" y="220" fill="#dbe6f7" font-family="Consolas, Menlo, monospace" font-size="13">"name": "Novak Djokovic", ...</text>
+  <text x="770" y="238" fill="#8fd6a3" font-family="Consolas, Menlo, monospace" font-size="13">}]</text>
+
+  <!-- bottom: how the data moves -->
+  <g font-family="Consolas, Menlo, monospace" font-size="11" letter-spacing="1.5" text-anchor="middle">
+    <line x1="160" y1="358" x2="1040" y2="358" stroke="#24344f" stroke-width="2"/>
+    <rect x="60" y="334" width="140" height="48" rx="8" fill="#0d1526" stroke="#2c4268"/>
+    <text x="130" y="362" fill="#9fb3d4">TENNISMYLIFE</text>
+    <rect x="236" y="334" width="140" height="48" rx="8" fill="#0d1526" stroke="#2c4268"/>
+    <text x="306" y="362" fill="#9fb3d4">FETCHER</text>
+    <rect x="412" y="334" width="140" height="48" rx="8" fill="#0d1526" stroke="#2c4268"/>
+    <text x="482" y="362" fill="#9fb3d4">POSTGRESQL</text>
+    <rect x="588" y="334" width="140" height="48" rx="8" fill="#0d1526" stroke="#2c4268"/>
+    <text x="658" y="362" fill="#9fb3d4">FASTAPI</text>
+    <rect x="764" y="334" width="140" height="48" rx="8" fill="#0d1526" stroke="#2c4268"/>
+    <text x="834" y="362" fill="#9fb3d4">PROMETHEUS</text>
+    <rect x="940" y="334" width="200" height="48" rx="8" fill="#13230f" stroke="#c8e64c"/>
+    <text x="1040" y="362" fill="#c8e64c">GRAFANA</text>
+  </g>
+</svg>
