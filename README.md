@@ -17,6 +17,8 @@
 
 ---
 
+> You'll see the names TennisMyLife and Sackmann in this README. They are the sources of the match data. Jeff Sackmann and TennisMyLife record every ATP match and share the results as public CSV files. The links are in [Data and license](#data-and-license).
+
 ## Contents
 
 - [What it does](#what-it-does)
@@ -228,6 +230,6 @@ ATP-tennis-tracker/
 
 ## Data and license
 
-The match data comes from [TennisMyLife](https://stats.tennismylife.org/data), under the MIT license. This project is MIT too, see [LICENSE](LICENSE).
+The match data comes from [TennisMyLife](https://stats.tennismylife.org/data), under the MIT license. The first version of the project used Jeff Sackmann's tennis_atp repo on GitHub, which isn't online anymore. This project is MIT too, see [LICENSE](LICENSE).
 
 I made this project while learning DevOps, with Claude as my mentor and pair programmer.
