@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.svg" alt="ATP Tennis Tracker, player stats for every ATP match since 2022" width="100%">
+  <img src="assets/grafana.png" alt="Grafana dashboard with Novak Djokovic and Carlos Alcaraz" width="100%">
 </p>
 
 <p align="center">
