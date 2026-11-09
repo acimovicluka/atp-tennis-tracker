@@ -33,7 +33,7 @@
 
 ## What it does
 
-ATP Tennis Tracker takes ready made CSV files with ATP results and turns them into its own database. The fetcher refreshes the database every day at a set time, so it stays up to date with the matches played that day. Once the app is running (locally or on AWS, more on that below), you get:
+ATP Tennis Tracker takes ready made CSV files with ATP results and turns them into its own database. The fetcher refreshes the database every day at a set time (on Kubernetes), so it stays up to date with the matches played that day. Once the app is running (locally or on AWS, more on that below), you get:
 
 - **the API**, which gives stats for a player: his last 10 matches, his wins and losses on each surface, and his head to head against another player
 - **Grafana**, which shows the same stats on a dashboard, where you can pick any two players from the ATP list
@@ -84,6 +84,8 @@ kubectl port-forward service/grafana 3000:3000
 ```
 
 **AWS**
+
+Before this you need an AWS account with credentials set up for Terraform, an SSH key at `~/.ssh/atp-tracker`, and the `.env` file from above, because the playbook reads the database password from it. The Deploy button only works in my repo, since the secrets it uses are mine. In a fork you add your own `ATP_SSH_KEY` and `DB_PASSWORD` secrets, or you run Ansible from WSL.
 
 ```bash
 # create the server from the terraform folder, it prints public_ip at the end
@@ -162,7 +164,7 @@ Neither the API nor Grafana reads the `matches` table directly. Both read from a
 | Endpoint | What it gives back |
 |---|---|
 | `/players` | every player in the database, sorted by name |
-| `/players/search?name=đok` | up to 20 matches for that name (accents are ignored, so `đok` finds Djokovic) |
+| `/players/search?name=đok` | up to 20 players with that name (accents are ignored, so `đok` finds Djokovic) |
 | `/players/D643` | one player with his hand, height and country |
 | `/players/D643/surface-stats` | wins and losses on clay, grass and hard |
 | `/players/D643/form` | his last 10 matches: W or L, opponent, score |
@@ -232,3 +234,5 @@ ATP-tennis-tracker/
 The match data comes from [TennisMyLife](https://stats.tennismylife.org/data), under the MIT license. The first version of the project used Jeff Sackmann's tennis_atp repo on GitHub, which isn't online anymore.
 
 The whole project was built with Claude as my personal AI agent, which is why Claude is listed among the contributors and as a co-author on the commits.
+
+This project is under the MIT license, see [LICENSE](LICENSE).
