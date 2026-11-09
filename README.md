@@ -33,11 +33,13 @@
 
 ## What it does
 
-The fetcher is a small Python script. Every morning it downloads the newest ATP results from TennisMyLife and saves them into a PostgreSQL database. Three things read from that database:
+ATP Tennis Tracker takes ready made CSV files with ATP results and turns them into its own database. The fetcher refreshes the database every day at a set time, so it stays up to date with the matches played that day. Once the app is running (locally or on AWS, more on that below), you get:
 
-- **the API** gives stats for a player: his last 10 matches, his wins and losses on each surface, and his head to head against another player
-- **Grafana** shows the same stats on a dashboard, you pick two players from a dropdown
-- **Prometheus** watches the API itself: how many requests it gets, how long it takes to answer, and how many requests fail
+- **the API**, which gives stats for a player: his last 10 matches, his wins and losses on each surface, and his head to head against another player
+- **Grafana**, which shows the same stats on a dashboard, where you can pick any two players from the ATP list
+- **Prometheus**, which watches the API itself: how many requests it gets, how long it takes to answer, how many requests fail, and more
+
+I made it mainly for tennis fans who want to follow player stats and compare two players, but the data can be used for other things too.
 
 You can search with Serbian letters too, so `đok` finds Djokovic. Walkovers don't count in any of the stats, same as in the official ATP numbers.
 
