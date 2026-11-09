@@ -41,7 +41,6 @@ ATP Tennis Tracker takes ready made CSV files with ATP results and turns them in
 
 I made it mainly for tennis fans who want to follow player stats and compare two players, but the data can be used for other things too.
 
-You can search with Serbian letters too, so `đok` finds Djokovic. Walkovers don't count in any of the stats, same as in the official ATP numbers.
 
 ## Quick start
 
@@ -154,47 +153,47 @@ flowchart LR
     U --> G
 ```
 
-TennisMyLife has one CSV file for every season, and one more file for tournaments that are still going on. The fetcher reads all of them. For every tournament in a file it deletes the old matches and saves them again, so when the source fixes a score or renumbers the matches, my database gets the same fix. All of that is one transaction, and running the fetcher twice doesn't make duplicates.
+TennisMyLife keeps one CSV file per season (2022.csv, 2023.csv and so on), plus a separate file for the tournaments that are still being played. The fetcher goes through all of them. The source sometimes fixes a score or renumbers the matches after a tournament ends, so instead of only adding new rows, the fetcher deletes every tournament it finds in the file and inserts it again. Everything runs in one transaction with a single commit at the end. If the run breaks halfway, nothing changes in the database, and running it twice in a row still doesn't make duplicates.
 
-The API and Grafana don't read the matches table directly. They read a view called `played_matches`, which is the same table without the walkovers. Prometheus asks the API for its numbers every 15 seconds, and the second Grafana dashboard shows them.
+Neither the API nor Grafana reads the `matches` table directly. Both read from a view called `played_matches`, which is that table without the walkovers (a walkover isn't a real match, so it shouldn't count as a win). Prometheus scrapes the `/metrics` endpoint of the API every 15 seconds, and the second Grafana dashboard is built from that.
 
-On Kubernetes the API has two health checks. `/ping` only checks that the API is running, so if the database goes down Kubernetes doesn't restart the API. `/ready` checks the database too, and Kubernetes only sends traffic to the API when `/ready` says yes.
+On Kubernetes the API pod has two probes. The liveness probe calls `/ping`, which only answers "ok" and never touches the database, so a database outage doesn't make Kubernetes restart the API for nothing. The readiness probe calls `/ready`, which runs a `SELECT 1` on the database, and until that works Kubernetes doesn't send any traffic to the pod.
 
 ## API endpoints
 
 | Endpoint | What it gives back |
 |---|---|
-| `/players` | all players, sorted by name |
-| `/players/search?name=đok` | up to 20 players with that name, accents don't matter |
-| `/players/D643` | one player: hand, height, country |
-| `/players/D643/surface-stats` | wins and losses on each surface |
-| `/players/D643/form` | the last 10 matches with the result, the opponent and the score |
-| `/h2h/S0AG/A0E2` | head to head between two players and all their matches |
-| `/ping`, `/ready` | health checks for Kubernetes |
-| `/metrics` | metrics for Prometheus |
+| `/players` | every player in the database, sorted by name |
+| `/players/search?name=đok` | up to 20 matches for that name (accents are ignored, so `đok` finds Djokovic) |
+| `/players/D643` | one player with his hand, height and country |
+| `/players/D643/surface-stats` | wins and losses on clay, grass and hard |
+| `/players/D643/form` | his last 10 matches: W or L, opponent, score |
+| `/h2h/S0AG/A0E2` | the head to head score between two players, and every match they played |
+| `/ping`, `/ready` | liveness and readiness probes for Kubernetes |
+| `/metrics` | what Prometheus scrapes |
 
-If the player id doesn't exist, the API gives back 404 and not an empty list. Some ids you can try: Djokovic `D643`, Sinner `S0AG`, Alcaraz `A0E2`. All endpoints are also on `/docs`, where you can try them in the browser.
+For an id that doesn't exist the API returns 404, not an empty list. A few ids to start with: Djokovic `D643`, Sinner `S0AG`, Alcaraz `A0E2`. FastAPI also makes a `/docs` page by itself, where every endpoint can be tried straight from the browser.
 
 ## CI/CD and tests
 
-When I push to main, GitHub starts the CI workflow. It starts an empty PostgreSQL, fills it with made up test data from `tests/seed.sql`, and runs 23 tests on the fetcher and on every endpoint. If one test fails, the workflow stops. If all of them pass, it builds the Docker image and uploads it to GHCR with two tags, the commit and `latest`.
+Every push to main starts the CI workflow in GitHub Actions. It spins up an empty PostgreSQL as a service container, loads made up test data from `tests/seed.sql` and runs 23 pytest tests, some on the fetcher's cleaning functions and the rest on every API endpoint. One failed test is enough to stop the run. When everything passes, the workflow builds the Docker image and pushes it to GHCR with two tags: the commit SHA and `latest`.
 
-Deploy is a separate workflow and I start it by hand, because the server isn't always on. It takes the server IP and runs the Ansible playbook from GitHub, and the API restarts with the newest image. The server gets the code and the image from GitHub, never from my computer.
+Deploy is its own workflow (`workflow_dispatch`), and I start it by hand because the server is off most of the time. I give it the server IP, it runs the Ansible playbook from GitHub, and at the end a `rollout restart` makes the API pull the newest `latest` image. The server never gets anything from my computer, the code comes from the repo and the image from GHCR.
 
 ## Problems I ran into
 
 | Problem | Why it happened | How I fixed it |
 |---|---|---|
-| The data source disappeared, twice | Sackmann's repo went 404, then the TML GitHub copy stopped updating in January 2026 | moved to the TML site, the address is in one variable now |
-| "0 unique players processed" | ATP ids have letters in them (`D643`, `S0AG`), and the column was INTEGER | changed the column to TEXT |
-| US Open and Shanghai 2025 were missing | 489 rows have no match number, and the number is part of the primary key | the fetcher numbers them itself, always in the same order |
-| The same match was saved twice | the source fixes and renumbers matches after a tournament ends | the fetcher deletes each tournament and saves it again, in one transaction |
-| Walkovers counted as wins | matches that were never played were in the stats | the `played_matches` view leaves them out (Sinner went from 289-51 to 286-46) |
-| The fetcher crashed with `invalid literal for int(): 'tcp://...'` | Kubernetes adds `DB_PORT=tcp://...` on its own for a Service called `db` | `enableServiceLinks: false` |
-| The API couldn't reach the database inside a container | `localhost` inside a container means the container itself | the database host is an environment variable now |
-| `password authentication failed` after I changed `.env` | Postgres keeps the password from the first time it started | `docker compose down -v` and start again |
-| GHCR said `denied` on push | the workflow could read the repo but couldn't write packages | changed the Actions permissions to read and write |
-| Port 8000 was forbidden on Windows | Windows reserves a range of ports around 8000 | port-forward to 18080 locally |
+| The data source disappeared, twice | first Sackmann's repo went 404, then the TML copy on GitHub froze in January 2026 | switched to the TML site, and the URL now lives in one variable (`BASE_URL`) |
+| "0 unique players processed" | ATP ids have letters (`D643`, `S0AG`), but I made the column INTEGER | changed it to TEXT |
+| Matches from the US Open and Shanghai 2025 were missing | 489 rows in 2025.csv have no `match_num`, which is part of the primary key | the fetcher numbers them itself, per tournament and in CSV order, so the numbers are always the same |
+| Some matches were in the database twice | the source renumbers matches once a tournament is over | each tournament gets deleted and inserted again, inside the same transaction |
+| Walkovers counted as wins | `W/O` matches were never played but were still in the stats | the `played_matches` view leaves them out (Sinner went from 289-51 to 286-46) |
+| Fetcher crashed with `invalid literal for int(): 'tcp://...'` | Kubernetes injects `DB_PORT=tcp://...` for every Service named `db`, and it overwrote mine | `enableServiceLinks: false` in the pod spec |
+| `/players` returned 500 inside the container | `localhost` in a container is the container itself, not my PC | `DB_HOST` comes from an env var (`db` in Compose and Kubernetes) |
+| `password authentication failed` after I changed `.env` | Postgres sets the password only on the first init and keeps it in the volume | `docker compose down -v`, so it starts with a fresh volume |
+| GHCR push ended with `denied` | the layers got uploaded, but the workflow token had no write access for packages | repo Settings, Actions, Workflow permissions set to read and write |
+| `WinError 10013` on port 8000 | Windows (winnat) reserves a whole range of ports around 8000 | restarted winnat, and locally I port-forward to 18080 |
 
 ## Project structure
 
@@ -203,35 +202,35 @@ Deploy is a separate workflow and I start it by hand, because the server isn't a
 
 ```
 ATP-tennis-tracker/
-├── schema.sql              players and matches tables, and the played_matches view
-├── db.py                   connect(), the only place with the database settings
-├── fetcher.py              downloads the CSV files, cleans them and saves them
-├── api.py                  the FastAPI endpoints, /ready and /metrics
-├── requirements.txt        python packages the app needs
-├── requirements-dev.txt    the same packages plus pytest, only for the tests
-├── tests/                  test data and 23 tests for the fetcher and the api
-├── Dockerfile              one image for the api and the fetcher
+├── schema.sql              tables players and matches, plus the played_matches view
+├── db.py                   connect(), the only file that knows the database settings
+├── fetcher.py              downloads the CSVs, cleans the values, replaces each tournament
+├── api.py                  FastAPI endpoints, /ready and /metrics
+├── requirements.txt        pinned python packages
+├── requirements-dev.txt    requirements.txt + pytest, only for the tests
+├── tests/                  seed.sql with made up data, and 23 tests
+├── Dockerfile              one image, used by both the api and the fetcher
 ├── docker-compose.yml      db, fetcher and api for local work
-├── .env.example            template for .env, where the password goes
-├── terraform/              the AWS server, the key pair and the security group
+├── .env.example            template for .env (the real one holds the password and stays off git)
+├── terraform/              EC2 server, key pair, security group, ansible inventory
 ├── ansible/
-│   └── playbook.yml        sets up the server and starts the project on k3s
+│   └── playbook.yml        swap, git, k3s, the secret, then kubectl apply
 ├── k8s/
-│   ├── db.yaml             PostgreSQL with its own disk
-│   ├── api.yaml            the api and its load balancer
-│   ├── fetcher.yaml        the CronJob that runs every day
-│   ├── prometheus.yaml     collects the api metrics
-│   ├── grafana.yaml        Grafana and the two dashboards
-│   └── secret.yaml.example template for the database secret
+│   ├── db.yaml             StatefulSet for postgres with a 1Gi volume
+│   ├── api.yaml            Deployment with both probes, LoadBalancer on 8000
+│   ├── fetcher.yaml        CronJob, every day at 6:00 Belgrade time
+│   ├── prometheus.yaml     scrapes the api, reachable only inside the cluster
+│   ├── grafana.yaml        Grafana with both dashboards, LoadBalancer on 3000
+│   └── secret.yaml.example template for the atp-db secret
 └── .github/workflows/
-    ├── ci.yml              tests, build and push to GHCR on every push
-    └── deploy.yml          deploy to the AWS server, started by hand
+    ├── ci.yml              tests, docker build, push to GHCR
+    └── deploy.yml          manual deploy to AWS through Ansible
 ```
 
 </details>
 
 ## Data and license
 
-The match data comes from [TennisMyLife](https://stats.tennismylife.org/data), under the MIT license. The first version of the project used Jeff Sackmann's tennis_atp repo on GitHub, which isn't online anymore. This project is MIT too, see [LICENSE](LICENSE).
+The match data comes from [TennisMyLife](https://stats.tennismylife.org/data), under the MIT license. The first version of the project used Jeff Sackmann's tennis_atp repo on GitHub, which isn't online anymore.
 
-I made this project while learning DevOps, with Claude as my mentor and pair programmer.
+The whole project was built with Claude as my personal AI agent, which is why Claude is listed among the contributors and as a co-author on the commits.
