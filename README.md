@@ -157,8 +157,6 @@ TennisMyLife keeps one CSV file per season (2022.csv, 2023.csv and so on), plus 
 
 Neither the API nor Grafana reads the `matches` table directly. Both read from a view called `played_matches`, which is that table without the walkovers (a walkover isn't a real match, so it shouldn't count as a win). Prometheus scrapes the `/metrics` endpoint of the API every 15 seconds, and the second Grafana dashboard is built from that.
 
-On Kubernetes the API pod has two probes. The liveness probe calls `/ping`, which only answers "ok" and never touches the database, so a database outage doesn't make Kubernetes restart the API for nothing. The readiness probe calls `/ready`, which runs a `SELECT 1` on the database, and until that works Kubernetes doesn't send any traffic to the pod.
-
 ## API endpoints
 
 | Endpoint | What it gives back |
