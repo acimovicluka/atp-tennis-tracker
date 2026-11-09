@@ -1,12 +1,9 @@
 <p align="center">
-  <img src="assets/grafana.png" alt="Grafana dashboard with Novak Djokovic and Carlos Alcaraz" width="100%">
+  <img src="assets/grafana.png" alt="Grafana dashboard with Novak Djokovic and Carlos Alcaraz" width="70%">
 </p>
 
 <p align="center">
   <a href="https://github.com/acimovicluka/atp-tennis-tracker/actions/workflows/ci.yml"><img src="https://github.com/acimovicluka/atp-tennis-tracker/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/python-3.12-3776AB" alt="Python 3.12">
-  <img src="https://img.shields.io/badge/runs%20on-k3s%20on%20AWS-326CE5" alt="Runs on k3s on AWS">
-  <img src="https://img.shields.io/badge/image-GHCR-2ea44f" alt="Image on GHCR">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
